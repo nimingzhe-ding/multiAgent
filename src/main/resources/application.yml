@@ -1,0 +1,87 @@
+server:
+  port: 9900
+  servlet:
+    encoding:
+      charset: UTF-8
+      enabled: true
+      force: true
+
+logging:
+  charset:
+    console: ${CONSOLE_LOG_CHARSET:GBK}
+    file: UTF-8
+  file:
+    name: logs/super-biz-agent.log
+
+app:
+  cors:
+    allowed-origins: http://localhost:9900
+
+file:
+  upload:
+    path: ./uploads
+    allowed-extensions: txt,md,markdown,doc,docx,pdf,png
+
+milvus:
+  host: localhost
+  port: 19530
+  username: ""
+  password: ""
+  database: default
+  timeout: 10000
+
+spring:
+  ai:
+    dashscope:
+      api-key: ${DASHSCOPE_API_KEY}
+      chat:
+        options:
+          timeout: 180000
+      retry:
+        max-attempts: 3
+        backoff:
+          initial-interval: 2000
+          multiplier: 2
+          max-interval: 10000
+    mcp:
+      client:
+        enabled: true
+        name: tencent-mcp-server
+        version: 1.0.0
+        request-timeout: 60s
+        type: ASYNC
+        sse:
+          connections:
+            tencent-cls:
+              url: https://mcp-api.tencent-cloud.com
+              sse-endpoint: /sse/451f598acee0d0ef
+
+dashscope:
+  api:
+    key: ${DASHSCOPE_API_KEY}
+  embedding:
+    model: text-embedding-v4
+
+document:
+  chunk:
+    max-size: 800
+    overlap: 100
+  reader:
+    allowed-roots: ./uploads,./aiops-docs
+    page-size: 4000
+    max-page-size: 12000
+    max-file-size-mb: 50
+    pdftotext-path: pdftotext
+    pdftotext-timeout-seconds: 30
+
+rag:
+  top-k: 3
+  model: qwen3-max
+
+prometheus:
+  base-url: http://localhost:9090
+  timeout: 10
+  mock-enabled: false
+
+cls:
+  mock-enabled: false
