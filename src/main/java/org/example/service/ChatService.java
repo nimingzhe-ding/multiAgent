@@ -10,12 +10,14 @@ import org.example.agent.tool.InternalDocsTools;
 import org.example.agent.tool.QueryLogsTools;
 import org.example.agent.tool.QueryMetricsTools;
 import org.example.agent.tool.ReadDocumentTools;
+import org.example.agent.tool.SkillTools;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.ToolCallbackProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -46,10 +48,17 @@ public class ChatService {
     private QueryLogsTools queryLogsTools;
 
     @Autowired
+    @Lazy
+    private SkillTools skillTools;
+
+    @Autowired
     private ToolCallbackProvider tools;
 
     @Value("${spring.ai.dashscope.api-key}")
     private String dashScopeApiKey;
+
+    @Value("${app.mcp-tools.enabled:false}")
+    private boolean mcpToolsEnabled;
 
     /**
      * 创建 DashScope API 实例
@@ -97,8 +106,11 @@ public class ChatService {
         systemPromptBuilder.append("你是一个专业的智能助手，可以获取当前时间、查询天气信息、搜索内部文档知识库，以及查询 Prometheus 告警信息。\n");
         systemPromptBuilder.append("当用户询问时间相关问题时，使用 getCurrentDateTime 工具。\n");
         systemPromptBuilder.append("当用户需要查询公司内部文档、流程、最佳实践或技术指南时，使用 queryInternalDocs 工具。\n");
+        systemPromptBuilder.append("当用户提到知识库、上传的文档、刚才抓取的网页、刚才上传的文件、文档内容或图片文字时，必须先使用 queryInternalDocs 工具检索知识库；不要直接说看不到文档。\n");
+        systemPromptBuilder.append("如果 queryInternalDocs 没有结果，再请用户提供更具体的文件名、网页标题或关键词。\n");
         systemPromptBuilder.append("当用户需要查询 Prometheus 告警、监控指标或系统告警状态时，使用 queryPrometheusAlerts 工具。\n");
-        systemPromptBuilder.append("当用户需要查询腾讯云日志时，请调用腾讯云mcp服务查询,默认查询地域ap-guangzhou,查询时间范围为近一个月。\n\n");
+        systemPromptBuilder.append("当用户需要查询腾讯云日志时，请调用腾讯云mcp服务查询,默认查询地域ap-guangzhou,查询时间范围为近一个月。\n");
+        systemPromptBuilder.append("当用户的问题可能有历史解决方案或需要查找运维操作模式时，使用 searchSkills 工具从技能库中搜索相关技能。\n\n");
         
         // 添加历史消息
         if (!history.isEmpty()) {
@@ -126,11 +138,9 @@ public class ChatService {
      */
     public Object[] buildMethodToolsArray() {
         if (queryLogsTools != null) {
-            // Mock 模式：包含 QueryLogsTools
-            return new Object[]{dateTimeTools, internalDocsTools, queryMetricsTools, readDocumentTools, queryLogsTools};
+            return new Object[]{dateTimeTools, internalDocsTools, queryMetricsTools, readDocumentTools, queryLogsTools, skillTools};
         } else {
-            // 真实模式：不包含 QueryLogsTools（由 MCP 提供日志查询功能）
-            return new Object[]{dateTimeTools, internalDocsTools, queryMetricsTools, readDocumentTools};
+            return new Object[]{dateTimeTools, internalDocsTools, queryMetricsTools, readDocumentTools, skillTools};
         }
     }
 
@@ -138,15 +148,24 @@ public class ChatService {
      * 获取工具回调列表，mcp服务提供的工具
      */
     public ToolCallback[] getToolCallbacks() {
-        return tools.getToolCallbacks();
+        if (!mcpToolsEnabled) {
+            return new ToolCallback[0];
+        }
+
+        try {
+            return tools.getToolCallbacks();
+        } catch (RuntimeException e) {
+            logger.warn("获取 MCP 工具列表失败，将仅使用本地方法工具继续对话: {}", e.getMessage());
+            return new ToolCallback[0];
+        }
     }
 
     /**
      * 记录可用工具列表：mcp服务提供的工具
      */
     public void logAvailableTools() {
-        ToolCallback[] toolCallbacks = tools.getToolCallbacks();
-        logger.info("可用工具列表:");
+        ToolCallback[] toolCallbacks = getToolCallbacks();
+        logger.info("可用 MCP 工具列表:");
         for (ToolCallback toolCallback : toolCallbacks) {
             logger.info(">>> {}", toolCallback.getToolDefinition().name());
         }
@@ -166,6 +185,31 @@ public class ChatService {
                 .methodTools(buildMethodToolsArray())
                 .tools(getToolCallbacks())
                 .build();
+    }
+
+    public boolean shouldQueryKnowledgeBase(String question) {
+        if (question == null) {
+            return false;
+        }
+        String lower = question.toLowerCase();
+        return lower.contains("知识库")
+                || lower.contains("上传")
+                || lower.contains("文档")
+                || lower.contains("文件")
+                || lower.contains("网页")
+                || lower.contains("抓取")
+                || lower.contains("刚才")
+                || lower.contains("图片")
+                || lower.contains("knowledge")
+                || lower.contains("document")
+                || lower.contains("file")
+                || lower.contains("upload")
+                || lower.contains("web")
+                || lower.contains("url");
+    }
+
+    public String queryKnowledgeBaseForPrompt(String question) {
+        return internalDocsTools.queryInternalDocs(question);
     }
 
     /**

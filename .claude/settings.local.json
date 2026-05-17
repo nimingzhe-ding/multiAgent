@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls:*)",
+      "Bash(mvn compile:*)",
+      "Read(//d/桌面/**)",
+      "Bash(find /d -maxdepth 3 -type d -name \"*super_biz_agent*py*\")",
+      "Read(//c/Users/**)",
+      "Bash(grep:*)",
+      "Bash(netstat:*)",
+      "Bash(taskkill:*)",
+      "Bash(cmd:*)",
+      "Bash(mvn package:*)",
+      "Bash(mvn spring-boot:run:*)",
+      "Bash(docker run:*)",
+      "Bash(docker:*)"
+    ]
+  }
+}

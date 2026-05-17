@@ -1,6 +1,7 @@
 // SuperBizAgent 前端应用
 class SuperBizAgentApp {
     constructor() {
+        window._app = this;
         this.apiBaseUrl = `${window.location.origin}/api`;
         this.currentMode = 'quick'; // 'quick' 或 'stream'
         this.sessionId = this.generateSessionId();
@@ -9,11 +10,12 @@ class SuperBizAgentApp {
         this.chatHistories = this.loadChatHistories(); // 所有历史对话
         this.isCurrentChatFromHistory = false; // 标记当前对话是否是从历史记录加载的
         this.knowledgeFiles = [];
-        
+
         this.initializeElements();
         this.bindEvents();
         this.updateUI();
         this.initMarkdown();
+        this.initTheme();
         this.checkAndSetCentered();
         this.renderChatHistory();
         this.loadKnowledgeFiles();
@@ -105,7 +107,6 @@ class SuperBizAgentApp {
         this.knowledgeUploadBtn = document.getElementById('knowledgeUploadBtn');
         this.refreshKnowledgeBtn = document.getElementById('refreshKnowledgeBtn');
         this.knowledgeFilesList = document.getElementById('knowledgeFilesList');
-        this.knowledgePage = document.getElementById('knowledgePage');
         this.backToChatBtn = document.getElementById('backToChatBtn');
         this.knowledgeUploadMainBtn = document.getElementById('knowledgeUploadMainBtn');
         this.knowledgeSearchInput = document.getElementById('knowledgeSearchInput');
@@ -113,7 +114,23 @@ class SuperBizAgentApp {
         this.knowledgeIndexableCount = document.getElementById('knowledgeIndexableCount');
         this.knowledgeTotalSize = document.getElementById('knowledgeTotalSize');
         this.aiOpsSidebarBtn = document.getElementById('aiOpsSidebarBtn');
-        
+        this.sidebarToggle = document.getElementById('sidebarToggle');
+        this.sidebarOverlay = document.getElementById('sidebarOverlay');
+        this.sidebarChatContent = document.getElementById('sidebarChatContent');
+
+        // Navigation tabs
+        this.navTabChat = document.getElementById('navTabChat');
+        this.navTabKnowledge = document.getElementById('navTabKnowledge');
+        this.navTabSkills = document.getElementById('navTabSkills');
+        this.navTabSettings = document.getElementById('navTabSettings');
+
+        // Page containers
+        this.chatContainer = document.getElementById('chatContainer');
+        this.knowledgeContainer = document.getElementById('knowledgeContainer');
+        this.skillsContainer = document.getElementById('skillsContainer');
+        this.settingsContainer = document.getElementById('settingsContainer');
+        this.themeToggleCheckbox = document.getElementById('themeToggleCheckbox');
+
         // 输入区域元素
         this.messageInput = document.getElementById('messageInput');
         this.sendButton = document.getElementById('sendButton');
@@ -124,53 +141,129 @@ class SuperBizAgentApp {
         this.modeDropdown = document.getElementById('modeDropdown');
         this.currentModeText = document.getElementById('currentModeText');
         this.fileInput = document.getElementById('fileInput');
-        
+
         // 聊天区域元素
         this.chatMessages = document.getElementById('chatMessages');
         this.loadingOverlay = document.getElementById('loadingOverlay');
-        this.chatContainer = document.querySelector('.chat-container');
         this.welcomeGreeting = document.getElementById('welcomeGreeting');
         this.chatHistoryList = document.getElementById('chatHistoryList');
-        
+
+        // Knowledge page elements
+        this.knowledgeDropZone = document.getElementById('knowledgeDropZone');
+        this.knowledgeUrlInput = document.getElementById('knowledgeUrlInput');
+        this.knowledgeUrlTitle = document.getElementById('knowledgeUrlTitle');
+        this.knowledgeUrlSubmit = document.getElementById('knowledgeUrlSubmit');
+        this.knowledgeFileInput = document.getElementById('knowledgeFileInput');
+
+        // Skills page elements
+        this.skillsGrid = document.getElementById('skillsGrid');
+        this.skillSearchInput = document.getElementById('skillSearchInput');
+        this.skillSearchBtn = document.getElementById('skillSearchBtn');
+        this.skillCategoryFilter = document.getElementById('skillCategoryFilter');
+        this.skillGithubSearchBtn = document.getElementById('skillGithubSearchBtn');
+        this.skillCreateBtn = document.getElementById('skillCreateBtn');
+        this.githubSearchModal = document.getElementById('githubSearchModal');
+        this.githubSearchInput = document.getElementById('githubSearchInput');
+        this.githubSearchSubmit = document.getElementById('githubSearchSubmit');
+        this.githubSearchResults = document.getElementById('githubSearchResults');
+        this.githubSearchClose = document.getElementById('githubSearchClose');
+        this.skillCreateModal = document.getElementById('skillCreateModal');
+        this.skillCreateClose = document.getElementById('skillCreateClose');
+        this.skillFormSubmit = document.getElementById('skillFormSubmit');
+        this.skillDetailModal = document.getElementById('skillDetailModal');
+        this.skillDetailClose = document.getElementById('skillDetailClose');
+
+        // Confirm modal
+        this.confirmModal = document.getElementById('confirmModal');
+        this.confirmModalMessage = document.getElementById('confirmModalMessage');
+        this.confirmModalCancel = document.getElementById('confirmModalCancel');
+        this.confirmModalOK = document.getElementById('confirmModalOK');
+
         // 初始化时检查是否需要居中
         this.checkAndSetCentered();
     }
 
     // 绑定事件监听器
     bindEvents() {
+        // Navigation tabs
+        if (this.navTabChat) this.navTabChat.addEventListener('click', () => this.switchPage('chat'));
+        if (this.navTabKnowledge) this.navTabKnowledge.addEventListener('click', () => this.switchPage('knowledge'));
+        if (this.navTabSkills) this.navTabSkills.addEventListener('click', () => this.switchPage('skills'));
+        if (this.navTabSettings) this.navTabSettings.addEventListener('click', () => this.switchPage('settings'));
+
+        // Theme toggle
+        if (this.themeToggleCheckbox) {
+            this.themeToggleCheckbox.addEventListener('change', () => this.toggleTheme());
+        }
+
         // 新建对话
         if (this.newChatBtn) {
             this.newChatBtn.addEventListener('click', () => this.newChat());
         }
 
         if (this.knowledgeUploadBtn) {
-            this.knowledgeUploadBtn.addEventListener('click', () => this.showKnowledgePage());
+            this.knowledgeUploadBtn.addEventListener('click', () => this.knowledgeFileInput?.click());
         }
 
         if (this.refreshKnowledgeBtn) {
             this.refreshKnowledgeBtn.addEventListener('click', () => this.loadKnowledgeFiles());
         }
 
-        if (this.backToChatBtn) {
-            this.backToChatBtn.addEventListener('click', () => this.showChatPage());
-        }
-
         if (this.knowledgeUploadMainBtn) {
-            this.knowledgeUploadMainBtn.addEventListener('click', () => {
-                if (this.fileInput) {
-                    this.fileInput.click();
-                }
-            });
+            this.knowledgeUploadMainBtn.addEventListener('click', () => this.knowledgeFileInput?.click());
         }
 
         if (this.knowledgeSearchInput) {
             this.knowledgeSearchInput.addEventListener('input', () => this.renderKnowledgeFiles(this.knowledgeFiles));
         }
-        
-        // AI Ops按钮
-        if (this.aiOpsSidebarBtn) {
-            this.aiOpsSidebarBtn.addEventListener('click', () => this.triggerAIOps());
+
+        // Knowledge file input
+        if (this.knowledgeFileInput) {
+            this.knowledgeFileInput.addEventListener('change', (e) => this.handleKnowledgeFileUpload(e));
         }
+
+        // Knowledge drop zone
+        if (this.knowledgeDropZone) {
+            this.knowledgeDropZone.addEventListener('dragover', (e) => { e.preventDefault(); });
+            this.knowledgeDropZone.addEventListener('drop', (e) => {
+                e.preventDefault();
+                const files = e.dataTransfer.files;
+                if (files.length > 0) this.uploadKnowledgeFile(files[0]);
+            });
+        }
+
+        // URL import
+        if (this.knowledgeUrlSubmit) {
+            this.knowledgeUrlSubmit.addEventListener('click', () => this.ingestUrl());
+        }
+
+        // Skills events
+        if (this.skillSearchBtn) this.skillSearchBtn.addEventListener('click', () => this.searchSkills());
+        if (this.skillSearchInput) this.skillSearchInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') this.searchSkills(); });
+        if (this.skillCategoryFilter) this.skillCategoryFilter.addEventListener('change', () => this.loadSkills());
+        if (this.skillGithubSearchBtn) this.skillGithubSearchBtn.addEventListener('click', () => this.openGithubSearchModal());
+        if (this.githubSearchClose) this.githubSearchClose.addEventListener('click', () => this.closeGithubSearchModal());
+        if (this.githubSearchSubmit) this.githubSearchSubmit.addEventListener('click', () => this.searchGithubSkills());
+        if (this.githubSearchInput) this.githubSearchInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') this.searchGithubSkills(); });
+        if (this.skillCreateBtn) this.skillCreateBtn.addEventListener('click', () => this.openCreateSkillModal());
+        if (this.skillCreateClose) this.skillCreateClose.addEventListener('click', () => this.closeCreateSkillModal());
+        if (this.skillFormSubmit) this.skillFormSubmit.addEventListener('click', () => this.createSkill());
+        if (this.skillDetailClose) this.skillDetailClose.addEventListener('click', () => this.closeSkillDetailModal());
+
+        // Modal backdrop close
+        [this.githubSearchModal, this.skillCreateModal, this.skillDetailModal].forEach(modal => {
+            if (modal) modal.addEventListener('click', (e) => { if (e.target === modal) modal.style.display = 'none'; });
+        });
+
+        // Mobile sidebar
+        if (this.sidebarToggle) this.sidebarToggle.addEventListener('click', () => {
+            this.sidebar?.classList.toggle('open');
+            this.sidebarOverlay?.classList.toggle('open');
+        });
+        if (this.sidebarOverlay) this.sidebarOverlay.addEventListener('click', () => {
+            this.sidebar?.classList.remove('open');
+            this.sidebarOverlay?.classList.remove('open');
+        });
         
         // 模式选择下拉菜单
         if (this.modeSelectorBtn) {
@@ -244,40 +337,48 @@ class SuperBizAgentApp {
         }
     }
 
-    showKnowledgePage() {
-        if (this.knowledgePage) {
-            this.knowledgePage.hidden = false;
+    switchPage(page) {
+        // Update nav tabs
+        [this.navTabChat, this.navTabKnowledge, this.navTabSkills, this.navTabSettings].forEach(tab => {
+            if (tab) tab.classList.toggle('active', tab.dataset.page === page);
+        });
+
+        // Show/hide containers
+        const containers = {
+            chat: this.chatContainer,
+            knowledge: this.knowledgeContainer,
+            skills: this.skillsContainer,
+            settings: this.settingsContainer
+        };
+        Object.entries(containers).forEach(([key, el]) => {
+            if (el) el.style.display = (key === page) ? 'flex' : 'none';
+        });
+
+        // Toggle sidebar chat content (only show for chat page)
+        if (this.sidebarChatContent) {
+            this.sidebarChatContent.style.display = page === 'chat' ? 'block' : 'none';
         }
-        if (this.chatContainer) {
-            this.chatContainer.hidden = true;
-        }
+
+        // Toggle AI Ops button
         if (this.aiOpsSidebarBtn) {
-            this.aiOpsSidebarBtn.hidden = true;
+            this.aiOpsSidebarBtn.style.display = page === 'chat' ? 'flex' : 'none';
         }
-        if (this.knowledgeUploadBtn) {
-            this.knowledgeUploadBtn.classList.add('active');
-        }
-        this.loadKnowledgeFiles();
+
+        if (page === 'knowledge') this.loadKnowledgeFiles();
+        if (page === 'skills') this.loadSkills();
+        if (page === 'chat') this.checkAndSetCentered();
+    }
+
+    showKnowledgePage() {
+        this.switchPage('knowledge');
     }
 
     showChatPage() {
-        if (this.knowledgePage) {
-            this.knowledgePage.hidden = true;
-        }
-        if (this.chatContainer) {
-            this.chatContainer.hidden = false;
-        }
-        if (this.aiOpsSidebarBtn) {
-            this.aiOpsSidebarBtn.hidden = false;
-        }
-        if (this.knowledgeUploadBtn) {
-            this.knowledgeUploadBtn.classList.remove('active');
-        }
-        this.checkAndSetCentered();
+        this.switchPage('chat');
     }
 
     isKnowledgePageVisible() {
-        return this.knowledgePage && !this.knowledgePage.hidden;
+        return this.knowledgeContainer && this.knowledgeContainer.style.display !== 'none';
     }
 
     // 切换工具菜单显示/隐藏
@@ -1092,7 +1193,7 @@ class SuperBizAgentApp {
         if (file) {
             // 验证文件格式
             if (!this.validateFileType(file)) {
-                this.showNotification('只支持上传 txt、md、word、pdf、png 文件', 'error');
+                this.showNotification('只支持 txt、md、word、pdf、图片 文件', 'error');
                 this.fileInput.value = '';
                 return;
             }
@@ -1103,7 +1204,7 @@ class SuperBizAgentApp {
     // 验证文件类型
     validateFileType(file) {
         const fileName = file.name.toLowerCase();
-        const allowedExtensions = ['.txt', '.md', '.markdown', '.doc', '.docx', '.pdf', '.png'];
+        const allowedExtensions = ['.txt', '.md', '.markdown', '.doc', '.docx', '.pdf', '.png', '.jpg', '.jpeg', '.bmp', '.gif'];
         return allowedExtensions.some(ext => fileName.endsWith(ext));
     }
 
@@ -1111,7 +1212,7 @@ class SuperBizAgentApp {
     async uploadFile(file) {
         // 再次验证文件类型（双重保险）
         if (!this.validateFileType(file)) {
-            this.showNotification('只支持上传 txt、md、word、pdf、png 文件', 'error');
+            this.showNotification('只支持 txt、md、word、pdf、图片 文件', 'error');
             return;
         }
 
@@ -1145,9 +1246,14 @@ class SuperBizAgentApp {
             const data = await response.json();
 
             if ((data.code === 200 || data.message === 'success') && data.data) {
-                this.showNotification(`${file.name} 上传到知识库成功`, 'success');
+                const uploadData = data.data || {};
+                const noticeType = uploadData.indexed === false ? 'warning' : 'success';
+                const noticeText = uploadData.indexed === false
+                    ? `${file.name} 已保存，但索引失败：${uploadData.indexMessage || '未知错误'}`
+                    : `${file.name} 上传到知识库成功`;
+                this.showNotification(noticeText, noticeType);
                 if (!this.isKnowledgePageVisible()) {
-                    const successMessage = `${file.name} 上传到知识库成功`;
+                    const successMessage = noticeText;
                     this.addMessage('assistant', successMessage, false, true);
                 }
                 await this.loadKnowledgeFiles();
@@ -1175,7 +1281,7 @@ class SuperBizAgentApp {
             return;
         }
 
-        this.knowledgeFilesList.innerHTML = '<tr><td colspan="6" class="knowledge-table-empty">加载中...</td></tr>';
+        this.knowledgeFilesList.querySelectorAll('.knowledge-file-item, .knowledge-empty').forEach(el => el.remove());
 
         try {
             const response = await fetch(`${this.apiBaseUrl}/knowledge/files`);
@@ -1193,7 +1299,11 @@ class SuperBizAgentApp {
             this.updateKnowledgeStats(this.knowledgeFiles);
         } catch (error) {
             console.error('加载知识库文件失败:', error);
-            this.knowledgeFilesList.innerHTML = '<tr><td colspan="6" class="knowledge-table-empty">文件列表加载失败</td></tr>';
+            this.knowledgeFilesList.querySelectorAll('.knowledge-file-item, .knowledge-empty').forEach(el => el.remove());
+            const errDiv = document.createElement('div');
+            errDiv.className = 'knowledge-empty';
+            errDiv.innerHTML = '<p>文件列表加载失败</p>';
+            this.knowledgeFilesList.appendChild(errDiv);
         }
     }
 
@@ -1203,49 +1313,60 @@ class SuperBizAgentApp {
             return;
         }
 
-        this.knowledgeFilesList.innerHTML = '';
+        // Clear all file items (keep the header)
+        const header = this.knowledgeFilesList.querySelector('.knowledge-file-list-header');
+        const existingItems = this.knowledgeFilesList.querySelectorAll('.knowledge-file-item');
+        existingItems.forEach(item => item.remove());
+
         const keyword = (this.knowledgeSearchInput?.value || '').trim().toLowerCase();
         const visibleFiles = keyword
             ? files.filter(file => (file.name || '').toLowerCase().includes(keyword))
             : files;
 
         if (!visibleFiles || visibleFiles.length === 0) {
-            this.knowledgeFilesList.innerHTML = '<tr><td colspan="6" class="knowledge-table-empty">暂无文件</td></tr>';
+            const emptyDiv = document.createElement('div');
+            emptyDiv.className = 'knowledge-empty';
+            emptyDiv.innerHTML = '<p>暂无文件</p>';
+            this.knowledgeFilesList.appendChild(emptyDiv);
             return;
         }
 
         visibleFiles.forEach(file => {
-            const row = document.createElement('tr');
-            row.dataset.fileName = file.name || '';
+            const item = document.createElement('div');
+            item.className = 'knowledge-file-item';
+            item.dataset.fileName = file.name || '';
 
             const ext = (file.extension || '').toUpperCase();
+            const isUrlSource = file.sourceType === 'url';
             const indexText = file.indexable ? '已入库/可检索' : '仅保存';
             const lastModified = file.lastModified ? this.formatDateTime(file.lastModified) : '-';
-            row.innerHTML = `
-                <td>
-                    <div class="knowledge-file-cell">
-                        <span class="file-type-icon">${this.escapeHtml(ext.slice(0, 3) || 'FILE')}</span>
-                        <div>
-                            <div class="knowledge-file-title">${this.escapeHtml(file.name || '')}</div>
-                            <div class="knowledge-file-path">${this.escapeHtml(file.relativePath || '')}</div>
-                        </div>
-                    </div>
-                </td>
-                <td>${this.escapeHtml(ext || 'FILE')}</td>
-                <td>${this.formatFileSize(file.size || 0)}</td>
-                <td><span class="knowledge-status ${file.indexable ? 'indexable' : 'stored'}">${indexText}</span></td>
-                <td>${lastModified}</td>
-                <td>
-                    <div class="knowledge-row-actions">
-                        <button class="table-action-btn" data-action="reindex" data-file="${this.escapeHtml(file.name || '')}" ${file.indexable ? '' : 'disabled'}>重建索引</button>
-                        <button class="table-action-btn danger" data-action="delete" data-file="${this.escapeHtml(file.name || '')}">删除</button>
-                    </div>
-                </td>
+
+            const iconClass = isUrlSource ? 'file-icon-default' : ext === 'PDF' ? 'file-icon-pdf' : ext === 'DOCX' || ext === 'DOC' ? 'file-icon-docx' : ['PNG','JPG','JPEG','BMP','GIF'].includes(ext) ? 'file-icon-image' : ext === 'TXT' || ext === 'MD' ? 'file-icon-txt' : 'file-icon-default';
+            const typeText = isUrlSource ? 'URL' : (ext || 'FILE');
+            const sizeText = isUrlSource && file.chunkCount ? `${file.chunkCount} chunks` : this.formatFileSize(file.size || 0);
+            const actionHtml = isUrlSource
+                ? '<button class="table-action-btn" disabled>已索引</button><button class="table-action-btn danger" disabled>删除</button>'
+                : `<button class="table-action-btn" data-action="reindex" data-file="${this.escapeHtml(file.name || '')}" ${file.indexable ? '' : 'disabled'}>重建索引</button>
+                    <button class="table-action-btn danger" data-action="delete" data-file="${this.escapeHtml(file.name || '')}">删除</button>`;
+
+            item.innerHTML = `
+                <div class="kf-col-name">
+                    <span class="file-icon ${iconClass}">${this.escapeHtml(isUrlSource ? 'URL' : (ext.slice(0, 3) || 'FILE'))}</span>
+                    <span class="file-name-text">${this.escapeHtml(file.name || '')}</span>
+                </div>
+                <div class="kf-col-type">${this.escapeHtml(typeText)}</div>
+                <div class="kf-col-size">${this.escapeHtml(sizeText)}</div>
+                <div class="kf-col-time">${lastModified}</div>
+                <div class="kf-col-action">
+                    ${actionHtml}
+                </div>
             `;
 
-            row.querySelector('[data-action="reindex"]').addEventListener('click', () => this.reindexKnowledgeFile(file.name));
-            row.querySelector('[data-action="delete"]').addEventListener('click', () => this.deleteKnowledgeFile(file.name));
-            this.knowledgeFilesList.appendChild(row);
+            if (!isUrlSource) {
+                item.querySelector('[data-action="reindex"]').addEventListener('click', () => this.reindexKnowledgeFile(file.name));
+                item.querySelector('[data-action="delete"]').addEventListener('click', () => this.deleteKnowledgeFile(file.name));
+            }
+            this.knowledgeFilesList.appendChild(item);
         });
     }
 
@@ -1725,19 +1846,360 @@ class SuperBizAgentApp {
         if (this.loadingOverlay) {
             if (show) {
                 this.loadingOverlay.style.display = 'flex';
-                // 更新文字为上传中
                 const loadingText = this.loadingOverlay.querySelector('.loading-text');
                 const loadingSubtext = this.loadingOverlay.querySelector('.loading-subtext');
                 if (loadingText) loadingText.textContent = '正在上传文件...';
                 if (loadingSubtext) loadingSubtext.textContent = fileName ? `上传: ${fileName}` : '请稍候';
-                // 防止页面滚动
                 document.body.style.overflow = 'hidden';
             } else {
                 this.loadingOverlay.style.display = 'none';
-                // 恢复页面滚动
                 document.body.style.overflow = '';
             }
         }
+    }
+
+    // ========== 知识库 URL 导入 ==========
+
+    async ingestUrl() {
+        const url = this.knowledgeUrlInput?.value.trim();
+        if (!url) {
+            this.showNotification('请输入网页URL', 'warning');
+            return;
+        }
+        try {
+            this.showNotification('正在抓取网页...', 'info');
+            const title = this.knowledgeUrlTitle?.value.trim() || '';
+            const response = await fetch(`${this.apiBaseUrl}/knowledge/url`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ url, title })
+            });
+            if (!response.ok) throw new Error(await response.text());
+            const data = await response.json();
+            if (data.code === 200) {
+                this.showNotification(`成功索引 ${data.data.chunk_count} 个文本块`, 'success');
+                if (this.knowledgeUrlInput) this.knowledgeUrlInput.value = '';
+                if (this.knowledgeUrlTitle) this.knowledgeUrlTitle.value = '';
+                this.loadKnowledgeFiles();
+            } else {
+                throw new Error(data.message || '抓取失败');
+            }
+        } catch (e) {
+            this.showNotification('网页抓取失败: ' + e.message, 'error');
+        }
+    }
+
+    handleKnowledgeFileUpload(event) {
+        const file = event.target.files[0];
+        if (file) this.uploadKnowledgeFile(file);
+    }
+
+    async uploadKnowledgeFile(file) {
+        const formData = new FormData();
+        formData.append('file', file);
+        try {
+            this.showNotification('正在上传...', 'info');
+            const response = await fetch(`${this.apiBaseUrl}/knowledge/files`, {
+                method: 'POST', body: formData
+            });
+            const data = await response.json();
+            if (data.code === 200) {
+                const uploadData = data.data || {};
+                const fileName = uploadData.fileName || file.name;
+                if (uploadData.indexed === false) {
+                    this.showNotification(`文件 "${fileName}" 已保存，但索引失败：${uploadData.indexMessage || '未知错误'}`, 'warning');
+                } else {
+                    this.showNotification(`文件 "${fileName}" 上传并索引成功`, 'success');
+                }
+                this.loadKnowledgeFiles();
+            } else {
+                throw new Error(data.message || '上传失败');
+            }
+        } catch (e) {
+            this.showNotification('上传失败: ' + e.message, 'error');
+        }
+    }
+
+    // ========== 技能管理 ==========
+
+    async loadSkills() {
+        if (!this.skillsGrid) return;
+        try {
+            const category = this.skillCategoryFilter?.value || '';
+            const query = category ? `?category=${encodeURIComponent(category)}` : '';
+            const response = await fetch(`${this.apiBaseUrl}/skills${query}`);
+            const data = await response.json();
+            const skills = data.data?.skills || [];
+            this.renderSkillCards(skills);
+        } catch (e) {
+            console.error('加载技能列表失败:', e);
+            this.skillsGrid.innerHTML = '<div class="skills-empty"><p>加载失败，请稍后重试</p></div>';
+        }
+    }
+
+    renderSkillCards(skills) {
+        if (!this.skillsGrid) return;
+        if (!skills || skills.length === 0) {
+            this.skillsGrid.innerHTML = '<div class="skills-empty"><div class="skills-empty-icon">🔧</div><p>暂无技能</p><span>可以通过"从GitHub搜索"或"手动创建"添加技能</span></div>';
+            return;
+        }
+
+        const categoryLabels = { troubleshooting: '故障排查', monitoring: '监控', deployment: '部署', networking: '网络', security: '安全', database: '数据库', general: '通用' };
+        const sourceLabels = { precipitated: 'AI沉淀', searched: 'GitHub', manual: '手动创建' };
+
+        this.skillsGrid.innerHTML = skills.map(s => `
+            <div class="skill-card" data-skill-id="${this.escapeHtml(s.id)}">
+                <div class="skill-card-header">
+                    <span class="skill-card-name">${this.escapeHtml(s.name)}</span>
+                    <label class="skill-card-toggle" onclick="event.stopPropagation();">
+                        <input type="checkbox" ${s.enabled ? 'checked' : ''} onchange="window._app.toggleSkill('${this.escapeHtml(s.id)}', this.checked)">
+                        <span class="skill-toggle-slider"></span>
+                    </label>
+                </div>
+                <div class="skill-card-description">${this.escapeHtml(s.description || '暂无描述')}</div>
+                <div class="skill-card-badges">
+                    <span class="skill-badge skill-badge-category">${categoryLabels[s.category] || s.category}</span>
+                    <span class="skill-badge skill-badge-source-${s.source_type}">${sourceLabels[s.source_type] || s.source_type}</span>
+                    ${(s.tags || []).map(t => `<span class="skill-badge" style="background:#f1f3f4;color:#5f6368;">${this.escapeHtml(t)}</span>`).join('')}
+                </div>
+                <div class="skill-card-footer">
+                    <div class="skill-card-stats">
+                        <span class="skill-card-stat">📊 ${s.usage_count || 0}次</span>
+                        <span class="skill-card-stat">✅ ${Math.round((s.success_rate || 0) * 100)}%</span>
+                    </div>
+                    <div class="skill-card-actions">
+                        <button class="skill-action-btn" title="查看详情" onclick="window._app.openSkillDetail('${this.escapeHtml(s.id)}')">📋</button>
+                        <button class="skill-action-btn delete" title="删除" onclick="event.stopPropagation(); window._app.deleteSkill('${this.escapeHtml(s.id)}')">🗑</button>
+                    </div>
+                </div>
+            </div>
+        `).join('');
+
+        this.skillsGrid.querySelectorAll('.skill-card').forEach(card => {
+            card.addEventListener('click', (e) => {
+                if (e.target.closest('.skill-card-toggle') || e.target.closest('.skill-action-btn')) return;
+                this.openSkillDetail(card.dataset.skillId);
+            });
+        });
+    }
+
+    searchSkills() {
+        const query = this.skillSearchInput?.value.trim();
+        if (!query) { this.loadSkills(); return; }
+        fetch(`${this.apiBaseUrl}/skills/search`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ query, topK: 10 })
+        })
+        .then(r => r.json())
+        .then(data => { this.renderSkillCards(data.data?.skills || []); })
+        .catch(e => { console.error('技能搜索失败:', e); });
+    }
+
+    openGithubSearchModal() {
+        if (this.githubSearchModal) { this.githubSearchModal.style.display = 'flex'; if (this.githubSearchInput) this.githubSearchInput.value = ''; if (this.githubSearchResults) this.githubSearchResults.innerHTML = ''; }
+    }
+    closeGithubSearchModal() { if (this.githubSearchModal) this.githubSearchModal.style.display = 'none'; }
+
+    async searchGithubSkills() {
+        const query = this.githubSearchInput?.value.trim();
+        if (!query) { this.showNotification('请输入搜索关键词', 'warning'); return; }
+        if (this.githubSearchResults) this.githubSearchResults.innerHTML = '<p style="text-align:center;color:#5f6368;padding:20px;">搜索中...</p>';
+        try {
+            const response = await fetch(`${this.apiBaseUrl}/skills/search-github`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ query, topK: 10 })
+            });
+            const data = await response.json();
+            const repos = data.data?.repos || [];
+            this.renderGithubSearchResults(repos);
+        } catch (e) {
+            if (this.githubSearchResults) this.githubSearchResults.innerHTML = '<p style="text-align:center;color:#ea4335;padding:20px;">搜索失败</p>';
+        }
+    }
+
+    renderGithubSearchResults(repos) {
+        if (!this.githubSearchResults) return;
+        if (!repos.length) { this.githubSearchResults.innerHTML = '<p style="text-align:center;color:#9aa0a6;padding:20px;">未找到相关 MCP Server</p>'; return; }
+        this.githubSearchResults.innerHTML = repos.map(r => `
+            <div class="github-repo-item">
+                <div class="github-repo-name"><a href="${this.escapeHtml(r.html_url)}" target="_blank" rel="noopener">${this.escapeHtml(r.full_name)}</a></div>
+                <div class="github-repo-desc">${this.escapeHtml(r.description || '暂无描述')}</div>
+                <div class="github-repo-meta">
+                    <span class="github-repo-stars">⭐ ${r.stargazers_count}</span>
+                    <span>${this.escapeHtml(r.language || 'N/A')}</span>
+                </div>
+                <button class="github-repo-install-btn" onclick="window._app.installGithubSkill(${JSON.stringify(JSON.stringify(r))})">安装技能</button>
+            </div>
+        `).join('');
+    }
+
+    async installGithubSkill(repo) {
+        if (typeof repo === 'string') { try { repo = JSON.parse(repo); } catch (e) {} }
+        try {
+            const response = await fetch(`${this.apiBaseUrl}/skills/install-github`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(repo)
+            });
+            const data = await response.json();
+            if (data.code === 200) {
+                this.showNotification(`技能 "${data.data.name}" 安装成功`, 'success');
+                this.closeGithubSearchModal();
+                this.loadSkills();
+            }
+        } catch (e) {
+            this.showNotification('安装失败: ' + e.message, 'error');
+        }
+    }
+
+    openCreateSkillModal() {
+        if (this.skillCreateModal) {
+            this.skillCreateModal.style.display = 'flex';
+            ['skillFormName','skillFormDescription','skillFormPromptTemplate','skillFormToolChain','skillFormTags'].forEach(id => {
+                const el = document.getElementById(id); if (el) el.value = '';
+            });
+            const cat = document.getElementById('skillFormCategory'); if (cat) cat.value = 'general';
+        }
+    }
+    closeCreateSkillModal() { if (this.skillCreateModal) this.skillCreateModal.style.display = 'none'; }
+
+    async createSkill() {
+        const name = document.getElementById('skillFormName')?.value.trim();
+        if (!name) { this.showNotification('请输入技能名称', 'warning'); return; }
+        const payload = {
+            name,
+            description: document.getElementById('skillFormDescription')?.value.trim() || '',
+            category: document.getElementById('skillFormCategory')?.value || 'general',
+            promptTemplate: document.getElementById('skillFormPromptTemplate')?.value.trim() || null,
+            toolChainDescription: document.getElementById('skillFormToolChain')?.value.trim() || null,
+            tags: document.getElementById('skillFormTags')?.value.trim()
+                ? document.getElementById('skillFormTags').value.split(',').map(t => t.trim()).filter(Boolean)
+                : []
+        };
+        try {
+            const response = await fetch(`${this.apiBaseUrl}/skills`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            const data = await response.json();
+            if (data.code === 200) {
+                this.showNotification(`技能 "${data.data.name}" 创建成功`, 'success');
+                this.closeCreateSkillModal();
+                this.loadSkills();
+            }
+        } catch (e) {
+            this.showNotification('创建失败: ' + e.message, 'error');
+        }
+    }
+
+    async openSkillDetail(skillId) {
+        try {
+            const response = await fetch(`${this.apiBaseUrl}/skills/${encodeURIComponent(skillId)}`);
+            const data = await response.json();
+            const skill = data.data;
+            if (!skill) throw new Error('技能不存在');
+
+            const categoryLabels = { troubleshooting:'故障排查', monitoring:'监控', deployment:'部署', networking:'网络', security:'安全', database:'数据库', general:'通用' };
+            const sourceLabels = { precipitated:'AI沉淀', searched:'GitHub', manual:'手动创建' };
+
+            const nameEl = document.getElementById('skillDetailName');
+            if (nameEl) nameEl.textContent = skill.name;
+
+            const body = document.getElementById('skillDetailBody');
+            if (body) {
+                body.innerHTML = `
+                    <div class="skill-detail-section"><h4>描述</h4><p>${this.escapeHtml(skill.description || '暂无描述')}</p></div>
+                    <div class="skill-detail-section"><h4>分类 / 来源</h4>
+                        <div class="skill-card-badges">
+                            <span class="skill-badge skill-badge-category">${categoryLabels[skill.category]||skill.category}</span>
+                            <span class="skill-badge skill-badge-source-${skill.source_type}">${sourceLabels[skill.source_type]||skill.source_type}</span>
+                        </div>
+                    </div>
+                    ${skill.prompt_template ? `<div class="skill-detail-section"><h4>提示模板</h4><pre>${this.escapeHtml(skill.prompt_template)}</pre></div>` : ''}
+                    ${skill.tool_chain_description ? `<div class="skill-detail-section"><h4>工具链</h4><p>${this.escapeHtml(skill.tool_chain_description)}</p></div>` : ''}
+                    ${skill.tags && skill.tags.length > 0 ? `<div class="skill-detail-section"><h4>标签</h4>${skill.tags.map(t=>`<span class="skill-detail-tag">${this.escapeHtml(t)}</span>`).join('')}</div>` : ''}
+                    <div class="skill-detail-section"><h4>统计</h4><p>使用次数: ${skill.usage_count||0} / 成功率: ${Math.round((skill.success_rate||0)*100)}%</p></div>
+                    <button class="skill-precipitate-btn" style="background:#ea4335;margin-top:16px;" onclick="window._app.deleteSkill('${this.escapeHtml(skill.id)}');window._app.closeSkillDetailModal();">删除此技能</button>
+                `;
+            }
+            if (this.skillDetailModal) this.skillDetailModal.style.display = 'flex';
+        } catch (e) { console.error('获取技能详情失败:', e); }
+    }
+    closeSkillDetailModal() { if (this.skillDetailModal) this.skillDetailModal.style.display = 'none'; }
+
+    async toggleSkill(skillId, enabled) {
+        try {
+            await fetch(`${this.apiBaseUrl}/skills/${encodeURIComponent(skillId)}/toggle?enabled=${enabled}`, { method: 'PATCH' });
+            this.showNotification(enabled ? '技能已启用' : '技能已禁用', 'success');
+        } catch (e) { this.showNotification('操作失败: ' + e.message, 'error'); this.loadSkills(); }
+    }
+
+    async deleteSkill(skillId) {
+        if (!(await this.showConfirm('确定要删除此技能吗？此操作不可恢复。'))) return;
+        try {
+            await fetch(`${this.apiBaseUrl}/skills/${encodeURIComponent(skillId)}`, { method: 'DELETE' });
+            this.showNotification('技能已删除', 'success');
+            this.loadSkills();
+        } catch (e) { this.showNotification('删除失败: ' + e.message, 'error'); }
+    }
+
+    async precipitateSkill(sessionId) {
+        try {
+            this.showNotification('正在从会话中提取技能...', 'info');
+            const response = await fetch(`${this.apiBaseUrl}/skills/precipitate`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ sessionId })
+            });
+            const data = await response.json();
+            if (data.code === 200) {
+                this.showNotification(`技能 "${data.data.name}" 沉淀成功`, 'success');
+                this.loadSkills();
+            }
+        } catch (e) { this.showNotification('沉淀失败: ' + e.message, 'error'); }
+    }
+
+    addSkillPrecipitateButton(messageElement, sessionId) {
+        if (!messageElement || !sessionId) return;
+        const contentEl = messageElement.querySelector('.message-content');
+        if (!contentEl) return;
+        const btnContainer = document.createElement('div');
+        btnContainer.className = 'skill-precipitate-container';
+        btnContainer.innerHTML = `<button class="skill-precipitate-btn" onclick="window._app.precipitateSkill('${this.escapeHtml(sessionId)}')">➕ 沉淀为技能</button>`;
+        contentEl.appendChild(btnContainer);
+    }
+
+    // ========== 确认弹窗 ==========
+
+    showConfirm(message) {
+        return new Promise((resolve) => {
+            if (this.confirmModalMessage) this.confirmModalMessage.textContent = message;
+            if (this.confirmModal) this.confirmModal.style.display = 'flex';
+            const onOk = () => { cleanup(); resolve(true); };
+            const onCancel = () => { cleanup(); resolve(false); };
+            const cleanup = () => {
+                if (this.confirmModal) this.confirmModal.style.display = 'none';
+                if (this.confirmModalOK) this.confirmModalOK.removeEventListener('click', onOk);
+                if (this.confirmModalCancel) this.confirmModalCancel.removeEventListener('click', onCancel);
+            };
+            if (this.confirmModalOK) this.confirmModalOK.addEventListener('click', onOk);
+            if (this.confirmModalCancel) this.confirmModalCancel.addEventListener('click', onCancel);
+        });
+    }
+
+    // ========== 主题切换 ==========
+
+    initTheme() {
+        const saved = localStorage.getItem('theme');
+        const isDark = saved === 'dark' || (!saved && window.matchMedia('(prefers-color-scheme: dark)').matches);
+        document.documentElement.setAttribute('data-theme', isDark ? 'dark' : 'light');
+        if (this.themeToggleCheckbox) {
+            this.themeToggleCheckbox.checked = isDark;
+        }
+    }
+
+    toggleTheme() {
+        const isDark = this.themeToggleCheckbox?.checked;
+        document.documentElement.setAttribute('data-theme', isDark ? 'dark' : 'light');
+        localStorage.setItem('theme', isDark ? 'dark' : 'light');
     }
 }
 

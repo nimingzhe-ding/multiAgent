@@ -13,6 +13,7 @@ import lombok.Getter;
 import lombok.Setter;
 import org.example.service.AiOpsService;
 import org.example.service.ChatService;
+import org.example.service.SessionDBService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.tool.ToolCallback;
@@ -52,6 +53,9 @@ public class ChatController {
 
     @Autowired
     private ToolCallbackProvider tools;
+
+    @Autowired
+    private SessionDBService sessionDBService;
 
     private static final int STREAM_CORE_THREADS = 4;
     private static final int STREAM_MAX_THREADS = 32;
@@ -111,13 +115,23 @@ public class ChatController {
             // 创建 ReactAgent
             ReactAgent agent = chatService.createReactAgent(chatModel, systemPrompt);
             
+            String effectiveQuestion = request.getQuestion();
+            if (chatService.shouldQueryKnowledgeBase(request.getQuestion())) {
+                String knowledgeResults = chatService.queryKnowledgeBaseForPrompt(request.getQuestion());
+                effectiveQuestion = request.getQuestion() + "\n\n"
+                        + "以下是后端已从知识库检索到的结果，请优先依据这些结果回答。"
+                        + "如果结果为空或不相关，请明确说明没有检索到匹配内容，不要说无法访问用户上传的文档。\n"
+                        + knowledgeResults;
+            }
+
             // 执行对话
-            String fullAnswer = chatService.executeChat(agent, request.getQuestion());
+            String fullAnswer = chatService.executeChat(agent, effectiveQuestion);
             
             // 更新会话历史
             session.addMessage(request.getQuestion(), fullAnswer);
-            logger.info("已更新会话历史 - SessionId: {}, 当前消息对数: {}", 
-                request.getId(), session.getMessagePairCount());
+            try { sessionDBService.appendMessagePair(session.getSessionId(), request.getQuestion(), fullAnswer); } catch (Exception ignored) {}
+            logger.info("已更新会话历史 - SessionId: {}, 当前消息对数: {}",
+                session.getSessionId(), session.getMessagePairCount());
             
             return ResponseEntity.ok(ApiResponse.success(ChatResponse.success(fullAnswer)));
 
@@ -142,6 +156,10 @@ public class ChatController {
             SessionInfo session = sessions.get(request.getId());
             if (session != null) {
                 session.clearHistory();
+                sessionDBService.clearSessionMessages(request.getId());
+                return ResponseEntity.ok(ApiResponse.success("会话历史已清空"));
+            } else if (sessionDBService.getSession(request.getId()) != null) {
+                sessionDBService.clearSessionMessages(request.getId());
                 return ResponseEntity.ok(ApiResponse.success("会话历史已清空"));
             } else {
                 return ResponseEntity.ok(ApiResponse.error("会话不存在"));
@@ -264,8 +282,9 @@ public class ChatController {
                             
                             // 更新会话历史
                             session.addMessage(request.getQuestion(), fullAnswer);
-                            logger.info("已更新会话历史 - SessionId: {}, 当前消息对数: {}", 
-                                request.getId(), session.getMessagePairCount());
+                            try { sessionDBService.appendMessagePair(session.getSessionId(), request.getQuestion(), fullAnswer); } catch (Exception ignored) {}
+                            logger.info("已更新会话历史 - SessionId: {}, 当前消息对数: {}",
+                                session.getSessionId(), session.getMessagePairCount());
                             
                             // 发送完成标记
                             emitter.send(SseEmitter.event()
@@ -432,8 +451,20 @@ public class ChatController {
             sessionId = UUID.randomUUID().toString();
         }
         cleanupSessions();
-        SessionInfo session = sessions.computeIfAbsent(sessionId, SessionInfo::new);
+        SessionInfo session = sessions.computeIfAbsent(sessionId, id -> {
+            List<Map<String, String>> persistedHistory =
+                    sessionDBService.listSessionMessages(id, MAX_WINDOW_SIZE * 2);
+            return new SessionInfo(id, persistedHistory);
+        });
         session.touch();
+        // Persist to SQLite
+        try {
+            if (sessionDBService.getSession(sessionId) == null) {
+                sessionDBService.createSession(sessionId, "新对话");
+            }
+        } catch (Exception e) {
+            logger.warn("Failed to persist session to SQLite: {}", e.getMessage());
+        }
         return session;
     }
 
@@ -483,11 +514,19 @@ public class ChatController {
         private final ReentrantLock lock;
 
         public SessionInfo(String sessionId) {
+            this(sessionId, List.of());
+        }
+
+        public SessionInfo(String sessionId, List<Map<String, String>> initialHistory) {
             this.sessionId = sessionId;
-            this.messageHistory = new ArrayList<>();
+            this.messageHistory = new ArrayList<>(initialHistory != null ? initialHistory : List.of());
             this.createTime = System.currentTimeMillis();
             this.lastAccessTime = this.createTime;
             this.lock = new ReentrantLock();
+        }
+
+        public String getSessionId() {
+            return sessionId;
         }
 
         public void touch() {

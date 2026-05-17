@@ -18,6 +18,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.io.File;
+import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -197,11 +198,10 @@ public class VectorIndexService {
         try {
             // 使用统一的路径分隔符（正斜杠）用于Milvus存储，避免表达式解析错误
             // 将系统路径转换为统一格式
-            Path path = Paths.get(filePath).normalize();
-            String normalizedPath = path.toString().replace(File.separator, "/");
+            String normalizedPath = normalizeSourceId(filePath);
             
             // 构建删除表达式：metadata["_source"] == "xxx"
-            String expr = String.format("metadata[\"_source\"] == \"%s\"", normalizedPath);
+            String expr = String.format("metadata[\"_source\"] == \"%s\"", escapeMilvusStringLiteral(normalizedPath));
             
             logger.info("准备删除旧数据，路径: {}, 表达式: {}", normalizedPath, expr);
 
@@ -242,19 +242,29 @@ public class VectorIndexService {
      */
     private Map<String, Object> buildMetadata(String filePath, DocumentChunk chunk, int totalChunks) {
         Map<String, Object> metadata = new HashMap<>();
+
+        if (isHttpUrl(filePath)) {
+            String normalizedPath = normalizeSourceId(filePath);
+            String fileNameStr = extractSourceName(filePath);
+            metadata.put("_source", normalizedPath);
+            metadata.put("_extension", extractExtension(fileNameStr));
+            metadata.put("_file_name", fileNameStr);
+            metadata.put("chunkIndex", chunk.getChunkIndex());
+            metadata.put("totalChunks", totalChunks);
+            if (chunk.getTitle() != null && !chunk.getTitle().isEmpty()) {
+                metadata.put("title", chunk.getTitle());
+            }
+            return metadata;
+        }
         
         // 标准化路径：使用统一的路径分隔符（正斜杠）用于存储，确保跨平台一致性
         Path path = Paths.get(filePath).normalize();
-        String normalizedPath = path.toString().replace(File.separator, "/");
+        String normalizedPath = normalizeSourceId(filePath);
         
         // 文件信息
-        Path fileName = path.getFileName();
-        String fileNameStr = fileName != null ? fileName.toString() : "";
+        String fileNameStr = extractSourceName(filePath);
         String extension = "";
-        int dotIndex = fileNameStr.lastIndexOf('.');
-        if (dotIndex > 0) {
-            extension = fileNameStr.substring(dotIndex);
-        }
+        extension = extractExtension(fileNameStr);
         
             metadata.put("_source", normalizedPath);
             metadata.put("_extension", extension);
@@ -324,6 +334,146 @@ public class VectorIndexService {
             }
 
             logger.debug("向量插入成功: id={}, source={}, chunk={}", id, source, chunkIndex);
+
+        } catch (Exception e) {
+            logger.error("插入向量到 Milvus 失败", e);
+            throw e;
+        }
+    }
+
+    /**
+     * Index raw text content into the vector store.
+     * Core indexing function shared by file indexing and URL/web content indexing.
+     *
+     * @param sourceId   Unique identifier (e.g. file path or URL)
+     * @param content    Full text content to index
+     * @param sourceName Human-readable display name
+     * @return Number of vector chunks created
+     */
+    public int indexText(String sourceId, String content, String sourceName) throws Exception {
+        if (content == null || content.isBlank()) {
+            logger.warn("Empty content for sourceId={}, skipping", sourceId);
+            return 0;
+        }
+
+        // Normalize source path or URL
+        String normalizedSource = normalizeSourceId(sourceId);
+
+        // Remove old vectors for this source (idempotent re-index)
+        deleteExistingData(normalizedSource);
+
+        // Split into chunks
+        List<DocumentChunk> chunks = chunkService.chunkDocument(content, normalizedSource);
+        String name = (sourceName != null && !sourceName.isEmpty()) ? sourceName : normalizedSource;
+        logger.info("Split source {} into {} chunks", sourceId, chunks.size());
+
+        if (chunks.isEmpty()) {
+            logger.warn("Source produced no chunks: {}", sourceId);
+            return 0;
+        }
+
+        // Build metadata with display name override
+        for (DocumentChunk chunk : chunks) {
+            Map<String, Object> metadata = buildMetadata(normalizedSource, chunk, chunks.size());
+            metadata.put("_file_name", name);
+
+            List<Float> vector = embeddingService.generateEmbedding(chunk.getContent());
+            insertToMilvusWithMeta(chunk.getContent(), vector, metadata, chunk.getChunkIndex());
+        }
+
+        logger.info("Indexed source {}, chunks={}", sourceId, chunks.size());
+        return chunks.size();
+    }
+
+    private String normalizeSourceId(String sourceId) {
+        if (sourceId == null) {
+            return "";
+        }
+        if (isHttpUrl(sourceId)) {
+            return sourceId.trim();
+        }
+        return Paths.get(sourceId).normalize().toString().replace(File.separator, "/");
+    }
+
+    private boolean isHttpUrl(String sourceId) {
+        String lower = sourceId == null ? "" : sourceId.trim().toLowerCase(Locale.ROOT);
+        return lower.startsWith("http://") || lower.startsWith("https://");
+    }
+
+    private String extractSourceName(String sourceId) {
+        if (sourceId == null || sourceId.isBlank()) {
+            return "";
+        }
+        if (isHttpUrl(sourceId)) {
+            try {
+                URI uri = URI.create(sourceId);
+                String path = uri.getPath();
+                if (path != null && !path.isBlank()) {
+                    int slash = path.lastIndexOf('/');
+                    String name = slash >= 0 ? path.substring(slash + 1) : path;
+                    if (!name.isBlank()) {
+                        return name;
+                    }
+                }
+                return uri.getHost() != null ? uri.getHost() : sourceId;
+            } catch (Exception e) {
+                return sourceId;
+            }
+        }
+
+        Path path = Paths.get(sourceId).normalize();
+        Path fileName = path.getFileName();
+        return fileName != null ? fileName.toString() : "";
+    }
+
+    private String extractExtension(String fileName) {
+        if (fileName == null) {
+            return "";
+        }
+        int dotIndex = fileName.lastIndexOf('.');
+        return dotIndex > 0 ? fileName.substring(dotIndex) : "";
+    }
+
+    private String escapeMilvusStringLiteral(String value) {
+        return value.replace("\\", "\\\\").replace("\"", "\\\"");
+    }
+
+    /**
+     * Insert to Milvus with pre-built metadata (reuses existing insert logic).
+     */
+    private void insertToMilvusWithMeta(String content, List<Float> vector,
+                                         Map<String, Object> metadata, int chunkIndex) throws Exception {
+        try {
+            R<RpcStatus> loadResponse = milvusClient.loadCollection(
+                LoadCollectionParam.newBuilder()
+                    .withCollectionName(MilvusConstants.MILVUS_COLLECTION_NAME)
+                    .build());
+
+            if (loadResponse.getStatus() != 0 && loadResponse.getStatus() != 65535) {
+                throw new RuntimeException("加载 collection 失败: " + loadResponse.getMessage());
+            }
+
+            String source = (String) metadata.get("_source");
+            String id = UUID.nameUUIDFromBytes((source + "_" + chunkIndex).getBytes()).toString();
+
+            List<InsertParam.Field> fields = new ArrayList<>();
+            fields.add(new InsertParam.Field("id", Collections.singletonList(id)));
+            fields.add(new InsertParam.Field("content", Collections.singletonList(content)));
+            fields.add(new InsertParam.Field("vector", Collections.singletonList(vector)));
+
+            com.google.gson.Gson gson = new com.google.gson.Gson();
+            com.google.gson.JsonObject metadataJson = gson.toJsonTree(metadata).getAsJsonObject();
+            fields.add(new InsertParam.Field("metadata", Collections.singletonList(metadataJson)));
+
+            InsertParam insertParam = InsertParam.newBuilder()
+                    .withCollectionName(MilvusConstants.MILVUS_COLLECTION_NAME)
+                    .withFields(fields)
+                    .build();
+
+            R<MutationResult> insertResponse = milvusClient.insert(insertParam);
+            if (insertResponse.getStatus() != 0) {
+                throw new RuntimeException("插入向量失败: " + insertResponse.getMessage());
+            }
 
         } catch (Exception e) {
             logger.error("插入向量到 Milvus 失败", e);

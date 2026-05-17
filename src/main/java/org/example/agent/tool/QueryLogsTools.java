@@ -3,6 +3,8 @@ package org.example.agent.tool;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -607,7 +609,8 @@ public class QueryLogsTools {
     /**
      * 日志条目
      */
-    @Data
+    @Getter
+    @Setter
     public static class LogEntry {
         @JsonProperty("timestamp")
         private String timestamp;

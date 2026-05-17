@@ -20,7 +20,7 @@ app:
 file:
   upload:
     path: ./uploads
-    allowed-extensions: txt,md,markdown,doc,docx,pdf,png
+    allowed-extensions: txt,md,markdown,doc,docx,pdf,png,jpg,jpeg,bmp,gif
 
 milvus:
   host: localhost
@@ -61,6 +61,7 @@ dashscope:
     key: ${DASHSCOPE_API_KEY}
   embedding:
     model: text-embedding-v4
+  vision-model: qwen-vl-max
 
 document:
   chunk:
@@ -82,6 +83,13 @@ prometheus:
   base-url: http://localhost:9090
   timeout: 10
   mock-enabled: false
+
+sqlite:
+  db-path: ./data/sessions.db
+
+skill:
+  github-token: ""
+  search-top-k: 5
 
 cls:
   mock-enabled: false

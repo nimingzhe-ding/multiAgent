@@ -2,6 +2,8 @@ package org.example.service;
 
 import lombok.Getter;
 import lombok.Setter;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.apache.poi.hwpf.HWPFDocument;
 import org.apache.poi.hwpf.extractor.WordExtractor;
 import org.apache.poi.xwpf.extractor.XWPFWordExtractor;
@@ -13,12 +15,16 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.CompletableFuture;
@@ -27,6 +33,8 @@ import java.util.stream.Collectors;
 
 @Service
 public class DocumentProcessingService {
+
+    private static final Logger logger = LoggerFactory.getLogger(DocumentProcessingService.class);
 
     private static final byte[] PNG_SIGNATURE = new byte[]{
             (byte) 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A
@@ -49,6 +57,15 @@ public class DocumentProcessingService {
 
     @Value("${document.reader.pdftotext-timeout-seconds:30}")
     private long pdftotextTimeoutSeconds;
+
+    @Value("${dashscope.vision-model:qwen-vl-max}")
+    private String visionModel;
+
+    @Value("${spring.ai.dashscope.api-key}")
+    private String dashScopeApiKey;
+
+    @Value("${dashscope.api.key:}")
+    private String dashScopeApiKeyAlt;
 
     public DocumentPage readPage(String documentPath, Integer page, Integer pageSize) throws IOException {
         Path path = resolveAllowedPath(documentPath);
@@ -95,7 +112,7 @@ public class DocumentProcessingService {
             case "pdf" -> extractPdfPages(path);
             case "docx" -> paginateText(extractDocxText(path), defaultPageSize);
             case "doc" -> paginateText(extractDocText(path), defaultPageSize);
-            case "png" -> List.of();
+            case "png", "jpg", "jpeg", "bmp", "gif" -> List.of(readImageText(path));
             case "txt", "md", "markdown" -> paginateText(Files.readString(path, StandardCharsets.UTF_8), defaultPageSize);
             default -> throw new IllegalArgumentException("unsupported document type: " + extension);
         };
@@ -131,6 +148,87 @@ public class DocumentProcessingService {
         return roots;
     }
 
+    /**
+     * Extract text from images using DashScope vision model (OCR).
+     */
+    private String readImageText(Path path) throws IOException {
+        byte[] imageData = Files.readAllBytes(path);
+        String b64Image = Base64.getEncoder().encodeToString(imageData);
+
+        String ext = getExtension(path);
+        String mimeType = switch (ext) {
+            case "jpg", "jpeg" -> "image/jpeg";
+            case "bmp" -> "image/bmp";
+            case "gif" -> "image/gif";
+            default -> "image/png";
+        };
+
+        String apiKey = dashScopeApiKey != null ? dashScopeApiKey : dashScopeApiKeyAlt;
+        String apiUrl = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions";
+
+        try {
+            HttpURLConnection conn = (HttpURLConnection) URI.create(apiUrl).toURL().openConnection();
+            conn.setRequestMethod("POST");
+            conn.setDoOutput(true);
+            conn.setConnectTimeout(60000);
+            conn.setReadTimeout(60000);
+            conn.setRequestProperty("Authorization", "Bearer " + apiKey);
+            conn.setRequestProperty("Content-Type", "application/json");
+
+            String body = """
+                {
+                    "model": "%s",
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": [
+                                {"type": "image_url", "image_url": {"url": "data:%s;base64,%s"}},
+                                {"type": "text", "text": "请提取这张图片中的所有文字内容，直接返回文字，不要添加额外说明。"}
+                            ]
+                        }
+                    ],
+                    "max_tokens": 4096
+                }
+                """.formatted(visionModel, mimeType, b64Image);
+
+            try (OutputStream os = conn.getOutputStream()) {
+                os.write(body.getBytes(StandardCharsets.UTF_8));
+            }
+
+            if (conn.getResponseCode() != 200) {
+                byte[] errBytes;
+                try (InputStream es = conn.getErrorStream()) {
+                    errBytes = es != null ? es.readAllBytes() : new byte[0];
+                }
+                throw new IOException("Vision API returned " + conn.getResponseCode() +
+                        ": " + new String(errBytes, StandardCharsets.UTF_8));
+            }
+
+            String response;
+            try (InputStream is = conn.getInputStream()) {
+                response = new String(is.readAllBytes(), StandardCharsets.UTF_8);
+            }
+
+            com.google.gson.Gson gson = new com.google.gson.Gson();
+            com.google.gson.JsonObject result = gson.fromJson(response, com.google.gson.JsonObject.class);
+            String content = result.getAsJsonArray("choices")
+                    .get(0).getAsJsonObject()
+                    .getAsJsonObject("message")
+                    .get("content").getAsString();
+
+            if (content == null || content.isBlank()) {
+                logger.warn("Image OCR produced no text: {}", path);
+                return "";
+            }
+
+            logger.info("Image OCR extracted {} chars from {}", content.length(), path.getFileName());
+            return content.trim();
+
+        } catch (Exception e) {
+            throw new IOException("Image OCR failed: " + e.getMessage(), e);
+        }
+    }
+
     private void validateFile(Path path) throws IOException {
         if (!Files.exists(path) || !Files.isRegularFile(path)) {
             throw new IllegalArgumentException("document does not exist or is not a file: " + path);
@@ -142,9 +240,11 @@ public class DocumentProcessingService {
             throw new IllegalArgumentException("document exceeds max size: " + maxFileSizeMb + "MB");
         }
 
-        if ("png".equals(getExtension(path))) {
+        String ext = getExtension(path);
+        if ("png".equals(ext)) {
             validatePng(path);
         }
+        // jpg, jpeg, bmp, gif are handled by the vision API, no local validation needed
     }
 
     private void validatePng(Path path) throws IOException {
