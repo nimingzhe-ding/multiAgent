@@ -198,12 +198,20 @@ public class FileUploadController {
         }
 
         try {
-            String[] result = webExtractionService.extractTextFromUrl(url, 30);
+            String cookie = request.get("cookie");
+            String[] result = webExtractionService.extractTextFromUrl(url, 30, cookie);
             String textContent = result[0];
             String pageTitle = result[1];
 
             if (textContent.isBlank()) {
-                return ResponseEntity.badRequest().body(errorResponse(400, "网页内容为空，无法索引。可能是动态页面或需要登录。"));
+                vectorIndexService.deleteFileIndex(url);
+                removeWebSource(url);
+                String tip = pageTitle != null && !pageTitle.isBlank()
+                        ? "（页面标题: " + pageTitle + "）"
+                        : "";
+                String suggestion = "请尝试: 1) 提供登录Cookie; 2) 查看服务器日志确认是否启用浏览器渲染; 3) 确认目标网站是否可正常访问";
+                return ResponseEntity.badRequest()
+                        .body(errorResponse(400, "网页内容为空，无法索引。" + tip + suggestion));
             }
 
             String sourceName = request.getOrDefault("title", pageTitle != null ? pageTitle : url);
@@ -223,7 +231,16 @@ public class FileUploadController {
             return ResponseEntity.ok(response);
         } catch (RuntimeException e) {
             logger.error("URL ingest failed: {}", url, e);
-            return ResponseEntity.status(408).body(errorResponse(408, "网页请求超时: " + e.getMessage()));
+            String msg = e.getMessage() != null ? e.getMessage() : "";
+            if (msg.contains("Chrome") || msg.contains("Edge") || msg.contains("executable not found")
+                    || msg.contains("browser")) {
+                return ResponseEntity.status(500)
+                        .body(errorResponse(500, "浏览器环境缺失: " + msg));
+            }
+            if (msg.contains("timeout") || msg.contains("Timeout") || msg.contains("timed out")) {
+                return ResponseEntity.status(408).body(errorResponse(408, "网页请求超时: " + msg));
+            }
+            return ResponseEntity.status(500).body(errorResponse(500, "网页抓取失败: " + msg));
         } catch (Exception e) {
             logger.error("URL ingest failed: {}", url, e);
             return ResponseEntity.status(500).body(errorResponse(500, "网页抓取失败: " + e.getMessage()));
@@ -425,6 +442,22 @@ public class FileUploadController {
                 Files.writeString(WEB_SOURCE_STORE, GSON.toJson(sources));
             } catch (Exception e) {
                 logger.warn("Failed to save web knowledge source {}: {}", url, e.getMessage());
+            }
+        }
+    }
+
+    private void removeWebSource(String url) {
+        synchronized (webSourceLock) {
+            try {
+                if (!Files.exists(WEB_SOURCE_STORE)) {
+                    return;
+                }
+                List<KnowledgeFile> sources = new ArrayList<>(loadWebSources());
+                if (sources.removeIf(source -> url.equals(source.getPath()))) {
+                    Files.writeString(WEB_SOURCE_STORE, GSON.toJson(sources));
+                }
+            } catch (Exception e) {
+                logger.warn("Failed to remove web knowledge source {}: {}", url, e.getMessage());
             }
         }
     }

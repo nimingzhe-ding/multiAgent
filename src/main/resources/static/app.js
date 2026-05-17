@@ -152,6 +152,7 @@ class SuperBizAgentApp {
         this.knowledgeDropZone = document.getElementById('knowledgeDropZone');
         this.knowledgeUrlInput = document.getElementById('knowledgeUrlInput');
         this.knowledgeUrlTitle = document.getElementById('knowledgeUrlTitle');
+        this.knowledgeUrlCookie = document.getElementById('knowledgeUrlCookie');
         this.knowledgeUrlSubmit = document.getElementById('knowledgeUrlSubmit');
         this.knowledgeFileInput = document.getElementById('knowledgeFileInput');
 
@@ -1867,19 +1868,28 @@ class SuperBizAgentApp {
             return;
         }
         try {
-            this.showNotification('正在抓取网页...', 'info');
+            this.showNotification('正在抓取网页（可能需要30秒）...', 'info');
             const title = this.knowledgeUrlTitle?.value.trim() || '';
+            const cookie = this.knowledgeUrlCookie?.value.trim() || '';
             const response = await fetch(`${this.apiBaseUrl}/knowledge/url`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ url, title })
+                body: JSON.stringify({ url, title, cookie })
             });
-            if (!response.ok) throw new Error(await response.text());
+            if (!response.ok) {
+                let errMsg = await response.text();
+                try {
+                    const errJson = JSON.parse(errMsg);
+                    errMsg = errJson.message || errMsg;
+                } catch (ignored) {}
+                throw new Error(errMsg);
+            }
             const data = await response.json();
             if (data.code === 200) {
                 this.showNotification(`成功索引 ${data.data.chunk_count} 个文本块`, 'success');
                 if (this.knowledgeUrlInput) this.knowledgeUrlInput.value = '';
                 if (this.knowledgeUrlTitle) this.knowledgeUrlTitle.value = '';
+                if (this.knowledgeUrlCookie) this.knowledgeUrlCookie.value = '';
                 this.loadKnowledgeFiles();
             } else {
                 throw new Error(data.message || '抓取失败');

@@ -16,6 +16,10 @@ logging:
 app:
   cors:
     allowed-origins: http://localhost:9900
+  web-render:
+    enabled: ${WEB_RENDER_ENABLED:true}
+    wait-ms: ${WEB_RENDER_WAIT_MS:4000}
+    browser-path: ${WEB_RENDER_BROWSER_PATH:}
 
 file:
   upload:
