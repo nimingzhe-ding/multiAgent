@@ -213,7 +213,11 @@ public class SkillService {
     // ── Skill Precipitation ───────────────────────────────────────────────
 
     public Map<String, Object> precipitateFromSession(String sessionId) {
-        List<Map<String, String>> messages = sessionDBService.listSessionMessages(sessionId, 40);
+        return precipitateFromSession(sessionId, null);
+    }
+
+    public Map<String, Object> precipitateFromSession(String sessionId, String userId) {
+        List<Map<String, String>> messages = sessionDBService.listSessionMessages(sessionId, 40, userId);
         if (messages.isEmpty()) {
             throw new RuntimeException("No chat messages found for session: " + sessionId);
         }

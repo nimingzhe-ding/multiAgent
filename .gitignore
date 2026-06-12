@@ -51,6 +51,11 @@ uploads/
 *.sh
 *.py
 
+### Local Environment ###
+env/*.local.ps1
+env/*.local.env
+env/*.secret.*
+
 ### docker
 /volumes
 /server.pid

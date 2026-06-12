@@ -51,7 +51,7 @@ public class ChatService {
     @Lazy
     private SkillTools skillTools;
 
-    @Autowired
+    @Autowired(required = false)
     private ToolCallbackProvider tools;
 
     @Value("${spring.ai.dashscope.api-key}")
@@ -148,7 +148,7 @@ public class ChatService {
      * 获取工具回调列表，mcp服务提供的工具
      */
     public ToolCallback[] getToolCallbacks() {
-        if (!mcpToolsEnabled) {
+        if (!mcpToolsEnabled || tools == null) {
             return new ToolCallback[0];
         }
 
@@ -210,6 +210,22 @@ public class ChatService {
 
     public String queryKnowledgeBaseForPrompt(String question) {
         return internalDocsTools.queryInternalDocs(question);
+    }
+
+    public String queryKnowledgeBaseForPrompt(String question, String userId) {
+        org.example.security.AuthenticatedUser previous = org.example.security.AuthUserContext.get();
+        try {
+            if (userId != null && !userId.isBlank()) {
+                org.example.security.AuthUserContext.set(new org.example.security.AuthenticatedUser(userId, ""));
+            }
+            return internalDocsTools.queryInternalDocs(question);
+        } finally {
+            if (previous == null) {
+                org.example.security.AuthUserContext.clear();
+            } else {
+                org.example.security.AuthUserContext.set(previous);
+            }
+        }
     }
 
     /**

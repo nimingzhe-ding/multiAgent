@@ -1,6 +1,7 @@
 package org.example.agent.tool;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.example.security.AuthUserContext;
 import org.example.service.VectorSearchService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -57,8 +58,8 @@ public class InternalDocsTools {
 
         try {
             // 使用向量搜索服务检索相关文档
-            List<VectorSearchService.SearchResult> searchResults = 
-                    vectorSearchService.searchSimilarDocuments(query, topK);
+            List<VectorSearchService.SearchResult> searchResults =
+                    vectorSearchService.searchSimilarDocuments(query, topK, AuthUserContext.userIdOrNull());
             
             if (searchResults.isEmpty()) {
                 return "{\"status\": \"no_results\", \"message\": \"No relevant documents found in the knowledge base.\"}";

@@ -46,6 +46,9 @@ public class VectorIndexService {
     @Autowired
     private DocumentProcessingService documentProcessingService;
 
+    @Autowired
+    private ElasticsearchKeywordService elasticsearchKeywordService;
+
     @Value("${file.upload.path}")
     private String uploadPath;
 
@@ -138,6 +141,10 @@ public class VectorIndexService {
      * @throws Exception 索引失败时抛出异常
      */
     public void indexSingleFile(String filePath) throws Exception {
+        indexSingleFile(filePath, Map.of());
+    }
+
+    public void indexSingleFile(String filePath, Map<String, Object> extraMetadata) throws Exception {
         Path path = Paths.get(filePath).normalize();
         File file = path.toFile();
         
@@ -174,6 +181,9 @@ public class VectorIndexService {
                 Map<String, Object> metadata = buildMetadata(path.toString(), chunk, chunks.size());
 
                 // 插入到 Milvus
+                if (extraMetadata != null) {
+                    metadata.putAll(extraMetadata);
+                }
                 insertToMilvus(chunk.getContent(), vector, metadata, chunk.getChunkIndex());
                 
                 logger.info("✓ 分片 {}/{} 索引成功", i + 1, chunks.size());
@@ -199,6 +209,7 @@ public class VectorIndexService {
             // 使用统一的路径分隔符（正斜杠）用于Milvus存储，避免表达式解析错误
             // 将系统路径转换为统一格式
             String normalizedPath = normalizeSourceId(filePath);
+            elasticsearchKeywordService.deleteBySource(normalizedPath);
             
             // 构建删除表达式：metadata["_source"] == "xxx"
             String expr = String.format("metadata[\"_source\"] == \"%s\"", escapeMilvusStringLiteral(normalizedPath));
@@ -333,6 +344,7 @@ public class VectorIndexService {
                 throw new RuntimeException("插入向量失败: " + insertResponse.getMessage());
             }
 
+            elasticsearchKeywordService.indexChunk(id, content, metadata, chunkIndex);
             logger.debug("向量插入成功: id={}, source={}, chunk={}", id, source, chunkIndex);
 
         } catch (Exception e) {
@@ -351,6 +363,10 @@ public class VectorIndexService {
      * @return Number of vector chunks created
      */
     public int indexText(String sourceId, String content, String sourceName) throws Exception {
+        return indexText(sourceId, content, sourceName, Map.of());
+    }
+
+    public int indexText(String sourceId, String content, String sourceName, Map<String, Object> extraMetadata) throws Exception {
         if (content == null || content.isBlank()) {
             logger.warn("Empty content for sourceId={}, skipping", sourceId);
             return 0;
@@ -375,6 +391,9 @@ public class VectorIndexService {
         // Build metadata with display name override
         for (DocumentChunk chunk : chunks) {
             Map<String, Object> metadata = buildMetadata(normalizedSource, chunk, chunks.size());
+            if (extraMetadata != null) {
+                metadata.putAll(extraMetadata);
+            }
             metadata.put("_file_name", name);
 
             List<Float> vector = embeddingService.generateEmbedding(chunk.getContent());
@@ -474,6 +493,8 @@ public class VectorIndexService {
             if (insertResponse.getStatus() != 0) {
                 throw new RuntimeException("插入向量失败: " + insertResponse.getMessage());
             }
+
+            elasticsearchKeywordService.indexChunk(id, content, metadata, chunkIndex);
 
         } catch (Exception e) {
             logger.error("插入向量到 Milvus 失败", e);

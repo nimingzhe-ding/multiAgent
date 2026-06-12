@@ -13,7 +13,10 @@ import lombok.Getter;
 import lombok.Setter;
 import org.example.service.AiOpsService;
 import org.example.service.ChatService;
+import org.example.service.MultiAgentChatService;
 import org.example.service.SessionDBService;
+import org.example.security.AuthUserContext;
+import org.example.security.AuthenticatedUser;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.tool.ToolCallback;
@@ -21,6 +24,7 @@ import org.springframework.ai.tool.ToolCallbackProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import reactor.core.publisher.Flux;
@@ -52,6 +56,9 @@ public class ChatController {
     private ChatService chatService;
 
     @Autowired
+    private MultiAgentChatService multiAgentChatService;
+
+    @Autowired(required = false)
     private ToolCallbackProvider tools;
 
     @Autowired
@@ -83,7 +90,9 @@ public class ChatController {
      * 与 /chat_react 逻辑一致，但直接返回完整结果而非流式输出
      */
     @PostMapping("/chat")
-    public ResponseEntity<ApiResponse<ChatResponse>> chat(@RequestBody ChatRequest request) {
+    public ResponseEntity<ApiResponse<ChatResponse>> chat(@RequestBody ChatRequest request,
+                                                          @AuthenticationPrincipal AuthenticatedUser user) {
+        AuthUserContext.set(user);
         try {
             logger.info("收到对话请求 - SessionId: {}, Question: {}", request.getId(), request.getQuestion());
 
@@ -94,7 +103,7 @@ public class ChatController {
             }
 
             // 获取或创建会话
-            SessionInfo session = getOrCreateSession(request.getId());
+            SessionInfo session = getOrCreateSession(request.getId(), user.userId());
             
             // 获取历史消息
             List<Map<String, String>> history = session.getHistory();
@@ -117,7 +126,7 @@ public class ChatController {
             
             String effectiveQuestion = request.getQuestion();
             if (chatService.shouldQueryKnowledgeBase(request.getQuestion())) {
-                String knowledgeResults = chatService.queryKnowledgeBaseForPrompt(request.getQuestion());
+                String knowledgeResults = chatService.queryKnowledgeBaseForPrompt(request.getQuestion(), user.userId());
                 effectiveQuestion = request.getQuestion() + "\n\n"
                         + "以下是后端已从知识库检索到的结果，请优先依据这些结果回答。"
                         + "如果结果为空或不相关，请明确说明没有检索到匹配内容，不要说无法访问用户上传的文档。\n"
@@ -129,7 +138,7 @@ public class ChatController {
             
             // 更新会话历史
             session.addMessage(request.getQuestion(), fullAnswer);
-            try { sessionDBService.appendMessagePair(session.getSessionId(), request.getQuestion(), fullAnswer); } catch (Exception ignored) {}
+            try { sessionDBService.appendMessagePair(session.getSessionId(), request.getQuestion(), fullAnswer, user.userId()); } catch (Exception ignored) {}
             logger.info("已更新会话历史 - SessionId: {}, 当前消息对数: {}",
                 session.getSessionId(), session.getMessagePairCount());
             
@@ -138,6 +147,59 @@ public class ChatController {
         } catch (Exception e) {
             logger.error("对话失败", e);
             return ResponseEntity.ok(ApiResponse.success(ChatResponse.error(e.getMessage())));
+        } finally {
+            AuthUserContext.clear();
+        }
+    }
+
+    /**
+     * Multi-agent chat endpoint.
+     *
+     * <p>This endpoint keeps the existing response format, but delegates the
+     * request to a supervisor with specialized agents instead of one agent
+     * holding every tool.</p>
+     */
+    @PostMapping("/chat_multi_agent")
+    public ResponseEntity<ApiResponse<ChatResponse>> chatMultiAgent(@RequestBody ChatRequest request,
+                                                                    @AuthenticationPrincipal AuthenticatedUser user) {
+        AuthUserContext.set(user);
+        try {
+            logger.info("收到多 Agent 对话请求 - SessionId: {}, Question: {}", request.getId(), request.getQuestion());
+
+            if (request.getQuestion() == null || request.getQuestion().trim().isEmpty()) {
+                logger.warn("多 Agent 对话问题内容为空");
+                return ResponseEntity.ok(ApiResponse.success(ChatResponse.error("问题内容不能为空")));
+            }
+
+            SessionInfo session = getOrCreateSession(request.getId(), user.userId());
+            List<Map<String, String>> history = session.getHistory();
+
+            DashScopeApi dashScopeApi = chatService.createDashScopeApi();
+            DashScopeChatModel chatModel = chatService.createStandardChatModel(dashScopeApi);
+            ToolCallback[] toolCallbacks = chatService.getToolCallbacks();
+
+            String fullAnswer = multiAgentChatService.execute(
+                    chatModel,
+                    toolCallbacks,
+                    request.getQuestion(),
+                    history
+            );
+
+            session.addMessage(request.getQuestion(), fullAnswer);
+            try {
+                sessionDBService.appendMessagePair(session.getSessionId(), request.getQuestion(), fullAnswer, user.userId());
+            } catch (Exception ignored) {
+            }
+
+            logger.info("多 Agent 对话完成 - SessionId: {}, 答案长度: {}",
+                    session.getSessionId(), fullAnswer == null ? 0 : fullAnswer.length());
+            return ResponseEntity.ok(ApiResponse.success(ChatResponse.success(fullAnswer)));
+
+        } catch (Exception e) {
+            logger.error("多 Agent 对话失败", e);
+            return ResponseEntity.ok(ApiResponse.success(ChatResponse.error(e.getMessage())));
+        } finally {
+            AuthUserContext.clear();
         }
     }
 
@@ -145,28 +207,29 @@ public class ChatController {
      * 清空会话历史
      */
     @PostMapping("/chat/clear")
-    public ResponseEntity<ApiResponse<String>> clearChatHistory(@RequestBody ClearRequest request) {
+    public ResponseEntity<ApiResponse<String>> clearChatHistory(@RequestBody ClearRequest request,
+                                                                @AuthenticationPrincipal AuthenticatedUser user) {
         try {
-            logger.info("收到清空会话历史请求 - SessionId: {}", request.getId());
+            logger.info("Clear chat history request - SessionId: {}", request.getId());
 
             if (request.getId() == null || request.getId().isEmpty()) {
                 return ResponseEntity.ok(ApiResponse.error("会话ID不能为空"));
             }
 
-            SessionInfo session = sessions.get(request.getId());
+            SessionInfo session = sessions.get(sessionKey(user.userId(), request.getId()));
             if (session != null) {
                 session.clearHistory();
-                sessionDBService.clearSessionMessages(request.getId());
+                sessionDBService.clearSessionMessages(request.getId(), user.userId());
                 return ResponseEntity.ok(ApiResponse.success("会话历史已清空"));
-            } else if (sessionDBService.getSession(request.getId()) != null) {
-                sessionDBService.clearSessionMessages(request.getId());
+            } else if (sessionDBService.getSession(request.getId(), user.userId()) != null) {
+                sessionDBService.clearSessionMessages(request.getId(), user.userId());
                 return ResponseEntity.ok(ApiResponse.success("会话历史已清空"));
             } else {
                 return ResponseEntity.ok(ApiResponse.error("会话不存在"));
             }
 
         } catch (Exception e) {
-            logger.error("清空会话历史失败", e);
+            logger.error("Clear chat history failed", e);
             return ResponseEntity.ok(ApiResponse.error(e.getMessage()));
         }
     }
@@ -176,8 +239,10 @@ public class ChatController {
      * 支持 session 管理，保留对话历史
      */
     @PostMapping(value = "/chat_stream", produces = "text/event-stream;charset=UTF-8")
-    public SseEmitter chatStream(@RequestBody ChatRequest request) {
+    public SseEmitter chatStream(@RequestBody ChatRequest request,
+                                 @AuthenticationPrincipal AuthenticatedUser user) {
         SseEmitter emitter = new SseEmitter(300000L); // 5分钟超时
+        String userId = user.userId();
 
         // 参数校验
         if (request.getQuestion() == null || request.getQuestion().trim().isEmpty()) {
@@ -193,11 +258,12 @@ public class ChatController {
 
         try {
             executor.execute(() -> {
+            AuthUserContext.set(user);
             try {
                 logger.info("收到 ReactAgent 对话请求 - SessionId: {}, Question: {}", request.getId(), request.getQuestion());
 
                 // 获取或创建会话
-                SessionInfo session = getOrCreateSession(request.getId());
+                SessionInfo session = getOrCreateSession(request.getId(), userId);
                 
                 // 获取历史消息
                 List<Map<String, String>> history = session.getHistory();
@@ -282,7 +348,7 @@ public class ChatController {
                             
                             // 更新会话历史
                             session.addMessage(request.getQuestion(), fullAnswer);
-                            try { sessionDBService.appendMessagePair(session.getSessionId(), request.getQuestion(), fullAnswer); } catch (Exception ignored) {}
+                            try { sessionDBService.appendMessagePair(session.getSessionId(), request.getQuestion(), fullAnswer, userId); } catch (Exception ignored) {}
                             logger.info("已更新会话历史 - SessionId: {}, 当前消息对数: {}",
                                 session.getSessionId(), session.getMessagePairCount());
                             
@@ -308,6 +374,8 @@ public class ChatController {
                     logger.error("发送错误消息失败", ex);
                 }
                 emitter.completeWithError(e);
+            } finally {
+                AuthUserContext.clear();
             }
             });
         } catch (RejectedExecutionException e) {
@@ -342,7 +410,7 @@ public class ChatController {
                                 .build())
                         .build();
 
-                ToolCallback[] toolCallbacks = tools.getToolCallbacks();
+                ToolCallback[] toolCallbacks = chatService.getToolCallbacks();
 
                 emitter.send(SseEmitter.event().name("message").data(SseMessage.content("正在读取告警并拆解任务...\n")));
                 
@@ -423,11 +491,12 @@ public class ChatController {
      * 获取会话信息
      */
     @GetMapping("/chat/session/{sessionId}")
-    public ResponseEntity<ApiResponse<SessionInfoResponse>> getSessionInfo(@PathVariable String sessionId) {
+    public ResponseEntity<ApiResponse<SessionInfoResponse>> getSessionInfo(@PathVariable String sessionId,
+                                                                           @AuthenticationPrincipal AuthenticatedUser user) {
         try {
             logger.info("收到获取会话信息请求 - SessionId: {}", sessionId);
 
-            SessionInfo session = sessions.get(sessionId);
+            SessionInfo session = sessions.get(sessionKey(user.userId(), sessionId));
             if (session != null) {
                 SessionInfoResponse response = new SessionInfoResponse();
                 response.setSessionId(sessionId);
@@ -446,26 +515,32 @@ public class ChatController {
 
     // ==================== 辅助方法 ====================
 
-    private SessionInfo getOrCreateSession(String sessionId) {
+    private SessionInfo getOrCreateSession(String sessionId, String userId) {
         if (sessionId == null || sessionId.isEmpty()) {
             sessionId = UUID.randomUUID().toString();
         }
+        String effectiveSessionId = sessionId;
+        String key = sessionKey(userId, effectiveSessionId);
         cleanupSessions();
-        SessionInfo session = sessions.computeIfAbsent(sessionId, id -> {
+        SessionInfo session = sessions.computeIfAbsent(key, ignored -> {
             List<Map<String, String>> persistedHistory =
-                    sessionDBService.listSessionMessages(id, MAX_WINDOW_SIZE * 2);
-            return new SessionInfo(id, persistedHistory);
+                    sessionDBService.listSessionMessages(effectiveSessionId, MAX_WINDOW_SIZE * 2, userId);
+            return new SessionInfo(effectiveSessionId, persistedHistory);
         });
         session.touch();
-        // Persist to SQLite
+        // Store session metadata in the configured in-process session store.
         try {
-            if (sessionDBService.getSession(sessionId) == null) {
-                sessionDBService.createSession(sessionId, "新对话");
+            if (sessionDBService.getSession(effectiveSessionId, userId) == null) {
+                sessionDBService.createSession(effectiveSessionId, "新对话", userId);
             }
         } catch (Exception e) {
-            logger.warn("Failed to persist session to SQLite: {}", e.getMessage());
+            logger.warn("Failed to store session metadata: {}", e.getMessage());
         }
         return session;
+    }
+
+    private String sessionKey(String userId, String sessionId) {
+        return (userId == null ? "anonymous" : userId) + ":" + sessionId;
     }
 
     private void cleanupSessions() {

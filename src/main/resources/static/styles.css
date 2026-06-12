@@ -107,6 +107,121 @@ body {
     transition: background-color 0.3s ease, color 0.3s ease;
 }
 
+.auth-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 3000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(248, 249, 250, 0.92);
+    backdrop-filter: blur(10px);
+    padding: 24px;
+}
+
+[data-theme="dark"] .auth-modal {
+    background: rgba(15, 23, 42, 0.9);
+}
+
+.auth-card {
+    width: min(420px, 100%);
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    box-shadow: 0 18px 60px var(--shadow-light);
+    padding: 28px;
+}
+
+.auth-card-header h1 {
+    font-size: 24px;
+    font-weight: 650;
+    margin-bottom: 8px;
+}
+
+.auth-card-header p {
+    color: var(--text-secondary);
+    font-size: 14px;
+    margin-bottom: 20px;
+}
+
+.auth-tabs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-bottom: 18px;
+}
+
+.auth-tab {
+    height: 38px;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background: var(--bg-secondary);
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-weight: 600;
+}
+
+.auth-tab.active {
+    background: var(--accent-blue);
+    border-color: var(--accent-blue);
+    color: white;
+}
+
+.auth-form {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.auth-form label {
+    font-size: 13px;
+    color: var(--text-secondary);
+    font-weight: 600;
+}
+
+.auth-form input {
+    height: 42px;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background: var(--bg-input);
+    color: var(--text-primary);
+    padding: 0 12px;
+    font-size: 14px;
+    outline: none;
+}
+
+.auth-form input:focus {
+    border-color: var(--accent-blue);
+    box-shadow: 0 0 0 3px var(--input-focus-shadow);
+}
+
+.auth-submit-btn {
+    height: 42px;
+    margin-top: 10px;
+    border: none;
+    border-radius: 6px;
+    background: var(--accent-blue);
+    color: white;
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.auth-submit-btn:hover {
+    background: var(--accent-blue-hover);
+}
+
+.auth-error {
+    min-height: 18px;
+    color: var(--danger-red);
+    font-size: 13px;
+}
+
+.auth-hint {
+    color: var(--text-muted);
+    font-size: 12px;
+}
+
 /* 主布局 */
 .app-layout {
     display: flex;
@@ -127,7 +242,7 @@ body {
     padding: 16px;
     display: flex;
     align-items: center;
-    justify-content: flex-start;
+    justify-content: space-between;
     gap: 12px;
     border-bottom: 1px solid var(--border-color);
 }
@@ -136,6 +251,31 @@ body {
     font-size: 16px;
     font-weight: 500;
     color: var(--text-primary);
+    white-space: nowrap;
+}
+
+.logout-btn {
+    border: 1px solid var(--border-color);
+    background: var(--bg-secondary);
+    color: var(--text-secondary);
+    border-radius: 6px;
+    padding: 5px 9px;
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.logout-btn:hover {
+    color: var(--danger-red);
+    border-color: var(--danger-red);
+}
+
+.auth-user-info {
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border-color);
+    color: var(--text-secondary);
+    font-size: 12px;
+    overflow: hidden;
+    text-overflow: ellipsis;
     white-space: nowrap;
 }
 
@@ -2794,6 +2934,204 @@ body {
     color: #ffffff;
 }
 
+.knowledge-meta-panel {
+    display: grid;
+    grid-template-columns: 160px minmax(180px, 1fr) minmax(220px, 1.4fr);
+    gap: 10px;
+    margin: 14px 0;
+}
+
+.knowledge-meta-panel input,
+.knowledge-meta-panel select,
+.knowledge-filter-select,
+.knowledge-filter-input,
+.mcp-form-grid input,
+.mcp-form-grid select,
+.ops-metric-grid input {
+    border: 1px solid var(--border-light);
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-size: 13px;
+}
+
+.knowledge-filter-select {
+    min-width: 120px;
+}
+
+.knowledge-filter-input {
+    width: 140px;
+}
+
+.file-name-text {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+}
+
+.file-name-text small {
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-weight: 500;
+}
+
+.knowledge-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    font-style: normal;
+}
+
+.knowledge-tags span {
+    border: 1px solid var(--border-light);
+    border-radius: 999px;
+    color: var(--text-secondary);
+    padding: 1px 7px;
+    font-size: 11px;
+}
+
+.status-pill {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 999px;
+    padding: 4px 10px;
+    background: rgba(95, 99, 104, 0.1);
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.status-pill.ok {
+    background: rgba(24, 128, 56, 0.12);
+    color: #188038;
+}
+
+.status-pill.bad {
+    background: rgba(217, 48, 37, 0.12);
+    color: #d93025;
+}
+
+.ops-console-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px;
+    margin-bottom: 18px;
+}
+
+.ops-card {
+    border: 1px solid var(--border-light);
+    border-radius: 8px;
+    background: var(--bg-primary);
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.ops-card-wide {
+    grid-column: 1 / -1;
+}
+
+.ops-card-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.ops-card-header h3 {
+    margin: 0 0 4px 0;
+    color: var(--text-primary);
+    font-size: 16px;
+}
+
+.ops-card-header p,
+.ops-card-body {
+    margin: 0;
+    color: var(--text-secondary);
+    font-size: 13px;
+    line-height: 1.5;
+}
+
+.memory-meter {
+    height: 10px;
+    overflow: hidden;
+    border-radius: 999px;
+    background: rgba(95, 99, 104, 0.14);
+}
+
+.memory-meter span {
+    display: block;
+    height: 100%;
+    width: 0;
+    border-radius: inherit;
+    background: linear-gradient(90deg, #188038, #f9ab00, #d93025);
+    transition: width 0.25s ease;
+}
+
+.ops-metric-grid,
+.mcp-form-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 10px;
+}
+
+.ops-metric-grid label {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    color: var(--text-secondary);
+    font-size: 12px;
+}
+
+.mcp-form-grid {
+    grid-template-columns: 1fr 160px 1.4fr 1fr 1fr 1fr auto;
+}
+
+.mcp-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.mcp-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    border: 1px solid var(--border-light);
+    border-radius: 8px;
+    padding: 10px 12px;
+}
+
+.mcp-row strong,
+.mcp-row span {
+    display: block;
+}
+
+.mcp-row span {
+    margin-top: 3px;
+    color: var(--text-secondary);
+    font-size: 12px;
+}
+
+.mcp-yaml {
+    max-height: 260px;
+    overflow: auto;
+    margin: 0;
+    border-radius: 8px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-light);
+    color: var(--text-primary);
+    padding: 12px;
+    font-size: 12px;
+    white-space: pre-wrap;
+}
+
 /* ========== 响应式设计 ========== */
 @media (max-width: 768px) {
     .sidebar-toggle {
@@ -2854,6 +3192,23 @@ body {
     .mode-dropdown {
         width: 100%;
         right: 0;
+    }
+
+    .knowledge-meta-panel,
+    .ops-console-grid,
+    .ops-metric-grid,
+    .mcp-form-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .knowledge-filter-select,
+    .knowledge-filter-input {
+        width: 100%;
+    }
+
+    .mcp-row {
+        align-items: flex-start;
+        flex-direction: column;
     }
 
     .knowledge-file-list-header,

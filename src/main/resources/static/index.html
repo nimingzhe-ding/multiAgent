@@ -11,6 +11,30 @@
     <script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/es/highlight.min.js"></script>
 </head>
 <body>
+    <div class="auth-modal" id="authModal" style="display:none;">
+        <div class="auth-card">
+            <div class="auth-card-header">
+                <h1>智能 OnCall 助手</h1>
+                <p>登录后继续使用知识库、技能库和多轮对话</p>
+            </div>
+            <div class="auth-tabs">
+                <button class="auth-tab active" id="authLoginTab" type="button">登录</button>
+                <button class="auth-tab" id="authRegisterTab" type="button">注册</button>
+            </div>
+            <div class="auth-form">
+                <label>用户名</label>
+                <input id="authUsername" type="text" autocomplete="username" placeholder="admin">
+                <label>密码</label>
+                <input id="authPassword" type="password" autocomplete="current-password" placeholder="至少 6 位">
+                <label id="authDisplayNameLabel" style="display:none;">显示名称</label>
+                <input id="authDisplayName" type="text" placeholder="可选" style="display:none;">
+                <button id="authSubmitBtn" class="auth-submit-btn" type="button">登录</button>
+                <div class="auth-error" id="authError"></div>
+                <div class="auth-hint">本地默认账号：admin / admin123</div>
+            </div>
+        </div>
+    </div>
+
     <button class="sidebar-toggle" id="sidebarToggle" aria-label="菜单">
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
             <path d="M3 6h18M3 12h18M3 18h18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
@@ -22,7 +46,9 @@
         <aside class="sidebar" role="navigation" aria-label="主导航">
             <div class="sidebar-header">
                 <h2 class="sidebar-title">智能OnCall助手</h2>
+                <button class="logout-btn" id="logoutBtn" type="button" title="退出登录">退出</button>
             </div>
+            <div class="auth-user-info" id="authUserInfo"></div>
             <div class="sidebar-nav" role="tablist" aria-label="页面导航">
                 <button class="nav-tab active" data-page="chat" id="navTabChat" role="tab" aria-selected="true">对话</button>
                 <button class="nav-tab" data-page="knowledge" id="navTabKnowledge" role="tab" aria-selected="false">知识库</button>
@@ -104,6 +130,14 @@
                     <p>拖拽文件到此处上传</p>
                     <span>支持 TXT, MD, PDF, DOCX, PNG, JPG 格式，最大 50MB</span>
                 </div>
+                <div class="knowledge-meta-panel">
+                    <select id="knowledgeVisibilityInput">
+                        <option value="shared">共享知识</option>
+                        <option value="private">个人私有</option>
+                    </select>
+                    <input id="knowledgeCategoryInput" type="text" placeholder="分类，如 java / aiops / feishu" value="general">
+                    <input id="knowledgeTagsInput" type="text" placeholder="标签，逗号分隔">
+                </div>
                 <div class="knowledge-url-section">
                     <div class="knowledge-url-row">
                         <input type="url" id="knowledgeUrlInput" placeholder="输入网页URL，如 https://example.com" class="knowledge-url-input">
@@ -122,6 +156,13 @@
                         <svg viewBox="0 0 24 24" fill="none" width="18" height="18"><circle cx="11" cy="11" r="8" stroke="currentColor" stroke-width="2"/><path d="M21 21l-4.35-4.35" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
                         <input type="text" id="knowledgeSearchInput" placeholder="搜索文件...">
                     </div>
+                    <select id="knowledgeVisibilityFilter" class="knowledge-filter-select">
+                        <option value="">全部可见性</option>
+                        <option value="shared">共享</option>
+                        <option value="private">私有</option>
+                    </select>
+                    <input id="knowledgeCategoryFilter" class="knowledge-filter-input" type="text" placeholder="分类筛选">
+                    <input id="knowledgeTagFilter" class="knowledge-filter-input" type="text" placeholder="标签筛选">
                     <button class="secondary-action-btn" id="refreshKnowledgeBtn">
                         <svg viewBox="0 0 24 24" fill="none" width="16" height="16"><path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
                         刷新
@@ -129,7 +170,7 @@
                 </div>
                 <div class="knowledge-file-list" id="knowledgeFilesList">
                     <div class="knowledge-file-list-header">
-                        <span class="kf-col-name">文件名</span><span class="kf-col-type">类型</span><span class="kf-col-size">大小</span><span class="kf-col-time">上传时间</span><span class="kf-col-action">操作</span>
+                        <span class="kf-col-name">文件名</span><span class="kf-col-type">类型</span><span class="kf-col-size">大小</span><span class="kf-col-time">上传时间</span><span class="kf-col-status">状态</span><span class="kf-col-action">操作</span>
                     </div>
                 </div>
             </div>
@@ -204,7 +245,49 @@
             <!-- 设置页面 -->
             <div class="settings-container" id="settingsContainer" style="display:none;">
                 <div class="settings-header">
-                    <h2>设置</h2>
+                    <h2>企业控制台</h2>
+                </div>
+                <div class="ops-console-grid">
+                    <section class="ops-card">
+                        <div class="ops-card-header">
+                            <div><h3>飞书告警</h3><p>自定义群机器人 webhook 状态与测试发送</p></div>
+                            <span class="status-pill" id="feishuStatusPill">未检测</span>
+                        </div>
+                        <div class="ops-card-body" id="feishuStatusText">读取中...</div>
+                        <button class="secondary-action-btn" id="feishuTestBtn" type="button">发送测试消息</button>
+                    </section>
+                    <section class="ops-card">
+                        <div class="ops-card-header">
+                            <div><h3>本机内存监控</h3><p>连续超阈值后推送飞书，恢复后自动通知</p></div>
+                            <span class="status-pill" id="memoryStatusPill">未检测</span>
+                        </div>
+                        <div class="memory-meter"><span id="memoryUsageBar"></span></div>
+                        <div class="ops-metric-grid">
+                            <label>告警阈值<input id="memoryWarningThreshold" type="number" min="1" max="99" step="1"></label>
+                            <label>恢复阈值<input id="memoryRecoveryThreshold" type="number" min="1" max="98" step="1"></label>
+                            <label>连续次数<input id="memoryConsecutiveLimit" type="number" min="1" max="20" step="1"></label>
+                            <label>冷却分钟<input id="memoryCooldownMinutes" type="number" min="1" max="1440" step="1"></label>
+                        </div>
+                        <div class="ops-card-body" id="memoryStatusText">读取中...</div>
+                        <button class="secondary-action-btn" id="memoryConfigSaveBtn" type="button">保存监控配置</button>
+                    </section>
+                    <section class="ops-card ops-card-wide">
+                        <div class="ops-card-header">
+                            <div><h3>MCP 连接</h3><p>配置 SSE / Streamable HTTP / Stdio，保存后重启应用生效</p></div>
+                            <button class="secondary-action-btn" id="mcpSnippetBtn" type="button">生成 YAML</button>
+                        </div>
+                        <div class="mcp-form-grid">
+                            <input id="mcpNameInput" placeholder="连接名，如 tencent-cls">
+                            <select id="mcpTransportInput"><option value="sse">SSE</option><option value="streamable-http">Streamable HTTP</option><option value="stdio">Stdio</option></select>
+                            <input id="mcpUrlInput" placeholder="URL，如 http://localhost:8080">
+                            <input id="mcpEndpointInput" placeholder="Endpoint，可选，如 /mcp">
+                            <input id="mcpCommandInput" placeholder="Stdio command，可选">
+                            <input id="mcpArgsInput" placeholder="Args，空格分隔">
+                            <button class="knowledge-url-submit-btn" id="mcpSaveBtn" type="button">保存连接</button>
+                        </div>
+                        <div class="mcp-list" id="mcpConnectionsList"></div>
+                        <pre class="mcp-yaml" id="mcpConfigSnippet"></pre>
+                    </section>
                 </div>
                 <div class="settings-section">
                     <h3 class="settings-section-title">外观</h3>
@@ -239,7 +322,7 @@
         <div class="confirm-modal-actions"><button class="confirm-modal-btn confirm-modal-cancel" id="confirmModalCancel">取消</button><button class="confirm-modal-btn confirm-modal-ok" id="confirmModalOK">确定</button></div></div>
     </div>
 
-    <input type="file" id="knowledgeFileInput" accept=".txt,.md,.markdown,.doc,.docx,.pdf,.png,.jpg,.jpeg,.bmp,.gif" style="display:none;">
+    <input type="file" id="knowledgeFileInput" accept=".txt,.md,.markdown,.doc,.docx,.pdf,.png,.jpg,.jpeg,.bmp,.gif" multiple style="display:none;">
     <script src="app.js"></script>
 </body>
 </html>

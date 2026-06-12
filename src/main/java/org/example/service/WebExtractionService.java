@@ -213,7 +213,7 @@ public class WebExtractionService {
 
             Page page = context.newPage();
             try {
-                com.microsoft.playwright.options.Response response = page.navigate(rawUrl,
+                com.microsoft.playwright.Response response = page.navigate(rawUrl,
                         new Page.NavigateOptions()
                                 .setTimeout(timeout * 1000.0)
                                 .setWaitUntil(com.microsoft.playwright.options.WaitUntilState.DOMCONTENTLOADED));

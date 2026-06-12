@@ -16,10 +16,32 @@ logging:
 app:
   cors:
     allowed-origins: http://localhost:9900
+  mcp-tools:
+    enabled: ${APP_MCP_TOOLS_ENABLED:false}
   web-render:
     enabled: ${WEB_RENDER_ENABLED:true}
     wait-ms: ${WEB_RENDER_WAIT_MS:4000}
     browser-path: ${WEB_RENDER_BROWSER_PATH:}
+
+feishu:
+  webhook-url: ${FEISHU_WEBHOOK_URL:}
+  webhook-secret: ${FEISHU_WEBHOOK_SECRET:}
+  timeout-seconds: ${FEISHU_TIMEOUT_SECONDS:10}
+
+monitoring:
+  memory:
+    check-interval-ms: ${MEMORY_MONITOR_CHECK_INTERVAL_MS:60000}
+
+auth:
+  jwt:
+    # Change JWT_SECRET before deploying. It must be at least 32 characters for HS256.
+    secret: ${JWT_SECRET:super-biz-agent-local-dev-secret-change-me-2026}
+    expiration-minutes: ${JWT_EXPIRATION_MINUTES:720}
+  default-user:
+    enabled: ${AUTH_DEFAULT_USER_ENABLED:true}
+    username: ${AUTH_DEFAULT_USERNAME:admin}
+    password: ${AUTH_DEFAULT_PASSWORD:admin123}
+    display-name: ${AUTH_DEFAULT_DISPLAY_NAME:Admin}
 
 file:
   upload:
@@ -35,6 +57,14 @@ milvus:
   timeout: 10000
 
 spring:
+  datasource:
+    url: ${DB_JDBC_URL:jdbc:mysql://localhost:3306/super_biz_agent?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true}
+    username: ${DB_USERNAME:root}
+    password: ${DB_PASSWORD:}
+  servlet:
+    multipart:
+      max-file-size: 50MB
+      max-request-size: 60MB
   ai:
     dashscope:
       api-key: ${DASHSCOPE_API_KEY}
@@ -49,7 +79,7 @@ spring:
           max-interval: 10000
     mcp:
       client:
-        enabled: true
+        enabled: ${MCP_CLIENT_ENABLED:false}
         name: tencent-mcp-server
         version: 1.0.0
         request-timeout: 60s
@@ -82,14 +112,29 @@ document:
 rag:
   top-k: 3
   model: qwen3-max
+  keyword:
+    elasticsearch:
+      enabled: ${ELASTICSEARCH_KEYWORD_ENABLED:true}
+      url: ${ELASTICSEARCH_URL:http://localhost:9200}
+      index: ${ELASTICSEARCH_KNOWLEDGE_INDEX:super_biz_knowledge}
+      username: ${ELASTICSEARCH_USERNAME:}
+      password: ${ELASTICSEARCH_PASSWORD:}
+      connect-timeout-seconds: ${ELASTICSEARCH_CONNECT_TIMEOUT_SECONDS:3}
+      read-timeout-seconds: ${ELASTICSEARCH_READ_TIMEOUT_SECONDS:5}
+  hybrid:
+    enabled: true
+    fusion: rrf
+    rrf-k: 60
+    vector-weight: 0.7
+    keyword-weight: 0.3
+    vector-candidate-multiplier: 4
+    keyword-candidate-limit: 1000
+    keyword-page-size: 500
 
 prometheus:
   base-url: http://localhost:9090
   timeout: 10
   mock-enabled: false
-
-sqlite:
-  db-path: ./data/sessions.db
 
 skill:
   github-token: ""

@@ -1,11 +1,13 @@
 package org.example.controller;
 
 import org.example.dto.*;
+import org.example.security.AuthenticatedUser;
 import org.example.service.SkillService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -148,9 +150,10 @@ public class SkillController {
     }
 
     @PostMapping("/skills/precipitate")
-    public ResponseEntity<Map<String, Object>> precipitateSkill(@RequestBody SkillDTO.SkillPrecipitateRequest request) {
+    public ResponseEntity<Map<String, Object>> precipitateSkill(@RequestBody SkillDTO.SkillPrecipitateRequest request,
+                                                                @AuthenticationPrincipal AuthenticatedUser user) {
         try {
-            Map<String, Object> skill = skillService.precipitateFromSession(request.getSessionId());
+            Map<String, Object> skill = skillService.precipitateFromSession(request.getSessionId(), user.userId());
             return ResponseEntity.ok(Map.of("code", 200, "message", "success", "data", skill));
         } catch (RuntimeException e) {
             return ResponseEntity.status(400).body(Map.of("code", 400, "message", e.getMessage()));

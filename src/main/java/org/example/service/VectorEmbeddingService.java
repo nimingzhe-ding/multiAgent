@@ -39,7 +39,7 @@ public class VectorEmbeddingService {
     public void init() {
         // 验证 API Key
         if (apiKey == null || apiKey.trim().isEmpty() || apiKey.equals("your-api-key-here")) {
-            logger.error("API Key 未正确配置！当前值: {}", apiKey);
+            logger.error("DashScope API Key is not configured");
             throw new IllegalStateException("请设置环境变量 DASHSCOPE_API_KEY 或在 application.yml 中配置正确的 API Key");
         }
         
@@ -58,7 +58,7 @@ public class VectorEmbeddingService {
             throw new IllegalStateException("API Key 设置到 Constants 失败");
         }
         
-        logger.info("Constants.apiKey 已设置: {}", Constants.apiKey.substring(0, Math.min(8, Constants.apiKey.length())) + "...");
+        logger.debug("DashScope API Key has been applied to SDK constants");
         
         // 创建 TextEmbedding 实例
         textEmbedding = new TextEmbedding();

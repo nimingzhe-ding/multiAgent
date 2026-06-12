@@ -3,6 +3,10 @@ class SuperBizAgentApp {
     constructor() {
         window._app = this;
         this.apiBaseUrl = `${window.location.origin}/api`;
+        this.authMode = 'login';
+        this.authToken = localStorage.getItem('authToken') || '';
+        this.authUser = this.loadAuthUser();
+        this.installAuthInterceptor();
         this.currentMode = 'quick'; // 'quick' 或 'stream'
         this.sessionId = this.generateSessionId();
         this.isStreaming = false;
@@ -18,7 +22,10 @@ class SuperBizAgentApp {
         this.initTheme();
         this.checkAndSetCentered();
         this.renderChatHistory();
-        this.loadKnowledgeFiles();
+        this.applyAuthState();
+        if (this.isAuthenticated()) {
+            this.loadKnowledgeFiles();
+        }
     }
 
     // 初始化Markdown配置
@@ -62,6 +69,141 @@ class SuperBizAgentApp {
         checkMarked();
     }
 
+    loadAuthUser() {
+        try {
+            const stored = localStorage.getItem('authUser');
+            return stored ? JSON.parse(stored) : null;
+        } catch (e) {
+            return null;
+        }
+    }
+
+    isAuthenticated() {
+        return Boolean(localStorage.getItem('authToken'));
+    }
+
+    installAuthInterceptor() {
+        if (window.__superBizAuthFetchInstalled) {
+            return;
+        }
+        const nativeFetch = window.fetch.bind(window);
+        const apiBase = `${window.location.origin}/api`;
+        window.fetch = async (input, init = {}) => {
+            const rawUrl = typeof input === 'string' ? input : input.url;
+            const isApiRequest = rawUrl.startsWith(apiBase) || rawUrl.startsWith('/api');
+            const isAuthRequest = rawUrl.includes('/api/auth/login') || rawUrl.includes('/api/auth/register');
+            const nextInit = { ...init };
+            if (isApiRequest && !isAuthRequest) {
+                const headers = new Headers(nextInit.headers || {});
+                const token = localStorage.getItem('authToken');
+                if (token) {
+                    headers.set('Authorization', `Bearer ${token}`);
+                }
+                nextInit.headers = headers;
+            }
+            const response = await nativeFetch(input, nextInit);
+            if (isApiRequest && !isAuthRequest && response.status === 401) {
+                window._app?.handleUnauthorized();
+            }
+            return response;
+        };
+        window.__superBizAuthFetchInstalled = true;
+    }
+
+    applyAuthState() {
+        const authenticated = this.isAuthenticated();
+        if (this.authModal) {
+            this.authModal.style.display = authenticated ? 'none' : 'flex';
+        }
+        if (this.authUserInfo) {
+            const username = this.authUser?.username || '';
+            this.authUserInfo.textContent = authenticated && username ? `当前用户：${username}` : '';
+        }
+        if (this.logoutBtn) {
+            this.logoutBtn.style.display = authenticated ? 'inline-flex' : 'none';
+        }
+        if (!authenticated) {
+            this.switchAuthMode('login');
+        }
+    }
+
+    switchAuthMode(mode) {
+        this.authMode = mode === 'register' ? 'register' : 'login';
+        const isRegister = this.authMode === 'register';
+        this.authLoginTab?.classList.toggle('active', !isRegister);
+        this.authRegisterTab?.classList.toggle('active', isRegister);
+        if (this.authSubmitBtn) this.authSubmitBtn.textContent = isRegister ? '注册并登录' : '登录';
+        if (this.authDisplayName) this.authDisplayName.style.display = isRegister ? 'block' : 'none';
+        if (this.authDisplayNameLabel) this.authDisplayNameLabel.style.display = isRegister ? 'block' : 'none';
+        if (this.authError) this.authError.textContent = '';
+    }
+
+    async submitAuth() {
+        const username = this.authUsername?.value.trim();
+        const password = this.authPassword?.value || '';
+        const displayName = this.authDisplayName?.value.trim() || '';
+        if (!username || !password) {
+            if (this.authError) this.authError.textContent = '请输入用户名和密码';
+            return;
+        }
+
+        if (this.authSubmitBtn) this.authSubmitBtn.disabled = true;
+        if (this.authError) this.authError.textContent = '';
+        try {
+            const response = await fetch(`${this.apiBaseUrl}/auth/${this.authMode}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username, password, displayName })
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok || data.code !== 200) {
+                throw new Error(data.message || '认证失败');
+            }
+            localStorage.setItem('authToken', data.data.token);
+            localStorage.setItem('authUser', JSON.stringify(data.data.user));
+            this.authToken = data.data.token;
+            this.authUser = data.data.user;
+            this.chatHistories = this.loadChatHistories();
+            this.renderChatHistory();
+            this.applyAuthState();
+            this.loadKnowledgeFiles();
+            this.showNotification(this.authMode === 'register' ? '注册成功' : '登录成功', 'success');
+        } catch (e) {
+            if (this.authError) this.authError.textContent = e.message || '认证失败';
+        } finally {
+            if (this.authSubmitBtn) this.authSubmitBtn.disabled = false;
+        }
+    }
+
+    logout() {
+        localStorage.removeItem('authToken');
+        localStorage.removeItem('authUser');
+        this.authToken = '';
+        this.authUser = null;
+        this.currentChatHistory = [];
+        this.chatHistories = [];
+        this.sessionId = this.generateSessionId();
+        if (this.chatMessages) this.chatMessages.innerHTML = '';
+        this.renderChatHistory();
+        this.applyAuthState();
+    }
+
+    handleUnauthorized() {
+        if (this.isAuthenticated()) {
+            this.logout();
+            if (this.authError) this.authError.textContent = '登录已过期，请重新登录';
+        }
+    }
+
+    ensureAuthenticated() {
+        if (this.isAuthenticated()) {
+            return true;
+        }
+        this.applyAuthState();
+        if (this.authError) this.authError.textContent = '请先登录';
+        return false;
+    }
+
     // 安全地渲染 Markdown
     renderMarkdown(content) {
         if (!content) return '';
@@ -103,6 +245,17 @@ class SuperBizAgentApp {
     initializeElements() {
         // 侧边栏元素
         this.sidebar = document.querySelector('.sidebar');
+        this.authModal = document.getElementById('authModal');
+        this.authLoginTab = document.getElementById('authLoginTab');
+        this.authRegisterTab = document.getElementById('authRegisterTab');
+        this.authUsername = document.getElementById('authUsername');
+        this.authPassword = document.getElementById('authPassword');
+        this.authDisplayName = document.getElementById('authDisplayName');
+        this.authDisplayNameLabel = document.getElementById('authDisplayNameLabel');
+        this.authSubmitBtn = document.getElementById('authSubmitBtn');
+        this.authError = document.getElementById('authError');
+        this.authUserInfo = document.getElementById('authUserInfo');
+        this.logoutBtn = document.getElementById('logoutBtn');
         this.newChatBtn = document.getElementById('newChatBtn');
         this.knowledgeUploadBtn = document.getElementById('knowledgeUploadBtn');
         this.refreshKnowledgeBtn = document.getElementById('refreshKnowledgeBtn');
@@ -155,6 +308,12 @@ class SuperBizAgentApp {
         this.knowledgeUrlCookie = document.getElementById('knowledgeUrlCookie');
         this.knowledgeUrlSubmit = document.getElementById('knowledgeUrlSubmit');
         this.knowledgeFileInput = document.getElementById('knowledgeFileInput');
+        this.knowledgeVisibilityInput = document.getElementById('knowledgeVisibilityInput');
+        this.knowledgeCategoryInput = document.getElementById('knowledgeCategoryInput');
+        this.knowledgeTagsInput = document.getElementById('knowledgeTagsInput');
+        this.knowledgeVisibilityFilter = document.getElementById('knowledgeVisibilityFilter');
+        this.knowledgeCategoryFilter = document.getElementById('knowledgeCategoryFilter');
+        this.knowledgeTagFilter = document.getElementById('knowledgeTagFilter');
 
         // Skills page elements
         this.skillsGrid = document.getElementById('skillsGrid');
@@ -180,12 +339,46 @@ class SuperBizAgentApp {
         this.confirmModalCancel = document.getElementById('confirmModalCancel');
         this.confirmModalOK = document.getElementById('confirmModalOK');
 
+        this.feishuStatusPill = document.getElementById('feishuStatusPill');
+        this.feishuStatusText = document.getElementById('feishuStatusText');
+        this.feishuTestBtn = document.getElementById('feishuTestBtn');
+        this.memoryStatusPill = document.getElementById('memoryStatusPill');
+        this.memoryUsageBar = document.getElementById('memoryUsageBar');
+        this.memoryWarningThreshold = document.getElementById('memoryWarningThreshold');
+        this.memoryRecoveryThreshold = document.getElementById('memoryRecoveryThreshold');
+        this.memoryConsecutiveLimit = document.getElementById('memoryConsecutiveLimit');
+        this.memoryCooldownMinutes = document.getElementById('memoryCooldownMinutes');
+        this.memoryStatusText = document.getElementById('memoryStatusText');
+        this.memoryConfigSaveBtn = document.getElementById('memoryConfigSaveBtn');
+        this.mcpNameInput = document.getElementById('mcpNameInput');
+        this.mcpTransportInput = document.getElementById('mcpTransportInput');
+        this.mcpUrlInput = document.getElementById('mcpUrlInput');
+        this.mcpEndpointInput = document.getElementById('mcpEndpointInput');
+        this.mcpCommandInput = document.getElementById('mcpCommandInput');
+        this.mcpArgsInput = document.getElementById('mcpArgsInput');
+        this.mcpSaveBtn = document.getElementById('mcpSaveBtn');
+        this.mcpSnippetBtn = document.getElementById('mcpSnippetBtn');
+        this.mcpConnectionsList = document.getElementById('mcpConnectionsList');
+        this.mcpConfigSnippet = document.getElementById('mcpConfigSnippet');
+
         // 初始化时检查是否需要居中
         this.checkAndSetCentered();
     }
 
     // 绑定事件监听器
     bindEvents() {
+        if (this.authLoginTab) this.authLoginTab.addEventListener('click', () => this.switchAuthMode('login'));
+        if (this.authRegisterTab) this.authRegisterTab.addEventListener('click', () => this.switchAuthMode('register'));
+        if (this.authSubmitBtn) this.authSubmitBtn.addEventListener('click', () => this.submitAuth());
+        if (this.logoutBtn) this.logoutBtn.addEventListener('click', () => this.logout());
+        [this.authUsername, this.authPassword, this.authDisplayName].forEach(input => {
+            if (input) {
+                input.addEventListener('keypress', (e) => {
+                    if (e.key === 'Enter') this.submitAuth();
+                });
+            }
+        });
+
         // Navigation tabs
         if (this.navTabChat) this.navTabChat.addEventListener('click', () => this.switchPage('chat'));
         if (this.navTabKnowledge) this.navTabKnowledge.addEventListener('click', () => this.switchPage('knowledge'));
@@ -215,8 +408,12 @@ class SuperBizAgentApp {
         }
 
         if (this.knowledgeSearchInput) {
-            this.knowledgeSearchInput.addEventListener('input', () => this.renderKnowledgeFiles(this.knowledgeFiles));
+            this.knowledgeSearchInput.addEventListener('input', () => this.loadKnowledgeFiles());
         }
+        [this.knowledgeVisibilityFilter, this.knowledgeCategoryFilter, this.knowledgeTagFilter].forEach(input => {
+            if (input) input.addEventListener('change', () => this.loadKnowledgeFiles());
+            if (input && input.tagName === 'INPUT') input.addEventListener('keypress', (e) => { if (e.key === 'Enter') this.loadKnowledgeFiles(); });
+        });
 
         // Knowledge file input
         if (this.knowledgeFileInput) {
@@ -229,7 +426,7 @@ class SuperBizAgentApp {
             this.knowledgeDropZone.addEventListener('drop', (e) => {
                 e.preventDefault();
                 const files = e.dataTransfer.files;
-                if (files.length > 0) this.uploadKnowledgeFile(files[0]);
+                if (files.length > 0) this.uploadKnowledgeFiles(files);
             });
         }
 
@@ -250,6 +447,11 @@ class SuperBizAgentApp {
         if (this.skillCreateClose) this.skillCreateClose.addEventListener('click', () => this.closeCreateSkillModal());
         if (this.skillFormSubmit) this.skillFormSubmit.addEventListener('click', () => this.createSkill());
         if (this.skillDetailClose) this.skillDetailClose.addEventListener('click', () => this.closeSkillDetailModal());
+
+        if (this.feishuTestBtn) this.feishuTestBtn.addEventListener('click', () => this.testFeishu());
+        if (this.memoryConfigSaveBtn) this.memoryConfigSaveBtn.addEventListener('click', () => this.saveMemoryConfig());
+        if (this.mcpSaveBtn) this.mcpSaveBtn.addEventListener('click', () => this.saveMcpConnection());
+        if (this.mcpSnippetBtn) this.mcpSnippetBtn.addEventListener('click', () => this.loadMcpSnippet());
 
         // Modal backdrop close
         [this.githubSearchModal, this.skillCreateModal, this.skillDetailModal].forEach(modal => {
@@ -339,6 +541,9 @@ class SuperBizAgentApp {
     }
 
     switchPage(page) {
+        if (!this.ensureAuthenticated()) {
+            return;
+        }
         // Update nav tabs
         [this.navTabChat, this.navTabKnowledge, this.navTabSkills, this.navTabSettings].forEach(tab => {
             if (tab) tab.classList.toggle('active', tab.dataset.page === page);
@@ -367,6 +572,7 @@ class SuperBizAgentApp {
 
         if (page === 'knowledge') this.loadKnowledgeFiles();
         if (page === 'skills') this.loadSkills();
+        if (page === 'settings') this.loadEnterpriseConsole();
         if (page === 'chat') this.checkAndSetCentered();
     }
 
@@ -404,6 +610,9 @@ class SuperBizAgentApp {
 
     // 新建对话
     newChat() {
+        if (!this.ensureAuthenticated()) {
+            return;
+        }
         this.showChatPage();
         if (this.isStreaming) {
             this.showNotification('请等待当前对话完成后再新建对话', 'warning');
@@ -534,7 +743,7 @@ class SuperBizAgentApp {
     // 加载历史对话列表
     loadChatHistories() {
         try {
-            const stored = localStorage.getItem('chatHistories');
+            const stored = localStorage.getItem(this.getChatHistoryKey());
             return stored ? JSON.parse(stored) : [];
         } catch (e) {
             console.error('加载历史对话失败:', e);
@@ -545,10 +754,15 @@ class SuperBizAgentApp {
     // 保存历史对话列表到localStorage
     saveChatHistories() {
         try {
-            localStorage.setItem('chatHistories', JSON.stringify(this.chatHistories));
+            localStorage.setItem(this.getChatHistoryKey(), JSON.stringify(this.chatHistories));
         } catch (e) {
             console.error('保存历史对话失败:', e);
         }
+    }
+
+    getChatHistoryKey() {
+        const username = this.authUser?.username || 'anonymous';
+        return `chatHistories:${username}`;
     }
     
     // 渲染历史对话列表
@@ -729,6 +943,9 @@ class SuperBizAgentApp {
 
     // 发送消息
     async sendMessage() {
+        if (!this.ensureAuthenticated()) {
+            return;
+        }
         let message = '';
         if (this.messageInput) {
             message = this.messageInput.value.trim();
@@ -783,7 +1000,7 @@ class SuperBizAgentApp {
         const loadingMessage = this.addLoadingMessage('正在思考...');
         
         try {
-            const response = await fetch(`${this.apiBaseUrl}/chat`, {
+            const response = await fetch(`${this.apiBaseUrl}/chat_multi_agent`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -1285,7 +1502,17 @@ class SuperBizAgentApp {
         this.knowledgeFilesList.querySelectorAll('.knowledge-file-item, .knowledge-empty').forEach(el => el.remove());
 
         try {
-            const response = await fetch(`${this.apiBaseUrl}/knowledge/files`);
+            const params = new URLSearchParams();
+            const q = this.knowledgeSearchInput?.value.trim();
+            const visibility = this.knowledgeVisibilityFilter?.value || '';
+            const category = this.knowledgeCategoryFilter?.value.trim();
+            const tag = this.knowledgeTagFilter?.value.trim();
+            if (q) params.set('q', q);
+            if (visibility) params.set('visibility', visibility);
+            if (category) params.set('category', category);
+            if (tag) params.set('tag', tag);
+            const query = params.toString() ? `?${params.toString()}` : '';
+            const response = await fetch(`${this.apiBaseUrl}/knowledge/files${query}`);
             if (!response.ok) {
                 throw new Error(`HTTP错误: ${response.status}`);
             }
@@ -1319,10 +1546,7 @@ class SuperBizAgentApp {
         const existingItems = this.knowledgeFilesList.querySelectorAll('.knowledge-file-item');
         existingItems.forEach(item => item.remove());
 
-        const keyword = (this.knowledgeSearchInput?.value || '').trim().toLowerCase();
-        const visibleFiles = keyword
-            ? files.filter(file => (file.name || '').toLowerCase().includes(keyword))
-            : files;
+        const visibleFiles = files;
 
         if (!visibleFiles || visibleFiles.length === 0) {
             const emptyDiv = document.createElement('div');
@@ -1339,34 +1563,37 @@ class SuperBizAgentApp {
 
             const ext = (file.extension || '').toUpperCase();
             const isUrlSource = file.sourceType === 'url';
-            const indexText = file.indexable ? '已入库/可检索' : '仅保存';
+            const status = file.indexStatus || (file.indexable ? 'indexed' : 'saved');
+            const statusText = status === 'indexed' ? '已索引' : status === 'index_failed' ? '索引失败' : '处理中';
             const lastModified = file.lastModified ? this.formatDateTime(file.lastModified) : '-';
 
             const iconClass = isUrlSource ? 'file-icon-default' : ext === 'PDF' ? 'file-icon-pdf' : ext === 'DOCX' || ext === 'DOC' ? 'file-icon-docx' : ['PNG','JPG','JPEG','BMP','GIF'].includes(ext) ? 'file-icon-image' : ext === 'TXT' || ext === 'MD' ? 'file-icon-txt' : 'file-icon-default';
             const typeText = isUrlSource ? 'URL' : (ext || 'FILE');
             const sizeText = isUrlSource && file.chunkCount ? `${file.chunkCount} chunks` : this.formatFileSize(file.size || 0);
             const actionHtml = isUrlSource
-                ? '<button class="table-action-btn" disabled>已索引</button><button class="table-action-btn danger" disabled>删除</button>'
+                ? `<button class="table-action-btn danger" data-action="delete" data-file="${this.escapeHtml(file.name || '')}">删除</button>`
                 : `<button class="table-action-btn" data-action="reindex" data-file="${this.escapeHtml(file.name || '')}" ${file.indexable ? '' : 'disabled'}>重建索引</button>
                     <button class="table-action-btn danger" data-action="delete" data-file="${this.escapeHtml(file.name || '')}">删除</button>`;
+            const tags = Array.isArray(file.tags) && file.tags.length ? file.tags.map(tag => `<span>${this.escapeHtml(tag)}</span>`).join('') : '<span>无标签</span>';
 
             item.innerHTML = `
                 <div class="kf-col-name">
                     <span class="file-icon ${iconClass}">${this.escapeHtml(isUrlSource ? 'URL' : (ext.slice(0, 3) || 'FILE'))}</span>
-                    <span class="file-name-text">${this.escapeHtml(file.name || '')}</span>
+                    <span class="file-name-text">${this.escapeHtml(file.name || '')}<small>${this.escapeHtml(file.visibility || 'shared')} · ${this.escapeHtml(file.category || 'general')}</small><em class="knowledge-tags">${tags}</em></span>
                 </div>
                 <div class="kf-col-type">${this.escapeHtml(typeText)}</div>
                 <div class="kf-col-size">${this.escapeHtml(sizeText)}</div>
                 <div class="kf-col-time">${lastModified}</div>
+                <div class="kf-col-status"><span class="status-pill ${status === 'indexed' ? 'ok' : status === 'index_failed' ? 'bad' : ''}">${statusText}</span></div>
                 <div class="kf-col-action">
                     ${actionHtml}
                 </div>
             `;
 
-            if (!isUrlSource) {
-                item.querySelector('[data-action="reindex"]').addEventListener('click', () => this.reindexKnowledgeFile(file.name));
-                item.querySelector('[data-action="delete"]').addEventListener('click', () => this.deleteKnowledgeFile(file.name));
-            }
+            const reindexBtn = item.querySelector('[data-action="reindex"]');
+            if (reindexBtn) reindexBtn.addEventListener('click', () => this.reindexKnowledgeFile(file.name));
+            const deleteBtn = item.querySelector('[data-action="delete"]');
+            if (deleteBtn) deleteBtn.addEventListener('click', () => this.deleteKnowledgeFile(file.name));
             this.knowledgeFilesList.appendChild(item);
         });
     }
@@ -1871,10 +2098,13 @@ class SuperBizAgentApp {
             this.showNotification('正在抓取网页（可能需要30秒）...', 'info');
             const title = this.knowledgeUrlTitle?.value.trim() || '';
             const cookie = this.knowledgeUrlCookie?.value.trim() || '';
+            const visibility = this.knowledgeVisibilityInput?.value || 'shared';
+            const category = this.knowledgeCategoryInput?.value.trim() || 'general';
+            const tags = this.knowledgeTagsInput?.value.trim() || '';
             const response = await fetch(`${this.apiBaseUrl}/knowledge/url`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ url, title, cookie })
+                body: JSON.stringify({ url, title, cookie, visibility, category, tags })
             });
             if (!response.ok) {
                 let errMsg = await response.text();
@@ -1900,13 +2130,25 @@ class SuperBizAgentApp {
     }
 
     handleKnowledgeFileUpload(event) {
-        const file = event.target.files[0];
-        if (file) this.uploadKnowledgeFile(file);
+        const files = event.target.files;
+        if (files && files.length > 0) this.uploadKnowledgeFiles(files);
     }
 
-    async uploadKnowledgeFile(file) {
+    async uploadKnowledgeFiles(files) {
+        const list = Array.from(files);
+        for (const file of list) {
+            await this.uploadKnowledgeFile(file, false);
+        }
+        if (this.knowledgeFileInput) this.knowledgeFileInput.value = '';
+        await this.loadKnowledgeFiles();
+    }
+
+    async uploadKnowledgeFile(file, refresh = true) {
         const formData = new FormData();
         formData.append('file', file);
+        formData.append('visibility', this.knowledgeVisibilityInput?.value || 'shared');
+        formData.append('category', this.knowledgeCategoryInput?.value.trim() || 'general');
+        formData.append('tags', this.knowledgeTagsInput?.value.trim() || '');
         try {
             this.showNotification('正在上传...', 'info');
             const response = await fetch(`${this.apiBaseUrl}/knowledge/files`, {
@@ -1921,7 +2163,7 @@ class SuperBizAgentApp {
                 } else {
                     this.showNotification(`文件 "${fileName}" 上传并索引成功`, 'success');
                 }
-                this.loadKnowledgeFiles();
+                if (refresh) this.loadKnowledgeFiles();
             } else {
                 throw new Error(data.message || '上传失败');
             }
@@ -2175,6 +2417,186 @@ class SuperBizAgentApp {
         btnContainer.className = 'skill-precipitate-container';
         btnContainer.innerHTML = `<button class="skill-precipitate-btn" onclick="window._app.precipitateSkill('${this.escapeHtml(sessionId)}')">➕ 沉淀为技能</button>`;
         contentEl.appendChild(btnContainer);
+    }
+
+    loadEnterpriseConsole() {
+        this.loadFeishuStatus();
+        this.loadMemoryStatus();
+        this.loadMcpConnections();
+    }
+
+    async loadFeishuStatus() {
+        if (!this.feishuStatusText) return;
+        try {
+            const response = await fetch(`${this.apiBaseUrl}/integrations/feishu/status`);
+            const data = await response.json();
+            const status = data.data || {};
+            if (this.feishuStatusPill) {
+                this.feishuStatusPill.textContent = status.configured ? '已配置' : '未配置';
+                this.feishuStatusPill.classList.toggle('ok', !!status.configured);
+                this.feishuStatusPill.classList.toggle('bad', !status.configured);
+            }
+            this.feishuStatusText.textContent = status.configured
+                ? `Webhook: ${status.webhookHost || '已隐藏'}，签名校验: ${status.signed ? '已启用' : '未启用'}`
+                : '请设置 FEISHU_WEBHOOK_URL，可选设置 FEISHU_WEBHOOK_SECRET。';
+        } catch (e) {
+            this.feishuStatusText.textContent = '飞书状态读取失败';
+        }
+    }
+
+    async testFeishu() {
+        try {
+            const response = await fetch(`${this.apiBaseUrl}/integrations/feishu/test`, { method: 'POST' });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok || data.code !== 200) throw new Error(data.data?.message || data.message || '发送失败');
+            this.showNotification('飞书测试消息已发送', 'success');
+            this.loadFeishuStatus();
+        } catch (e) {
+            this.showNotification('飞书测试失败: ' + e.message, 'error');
+        }
+    }
+
+    async loadMemoryStatus() {
+        if (!this.memoryStatusText) return;
+        try {
+            const response = await fetch(`${this.apiBaseUrl}/monitoring/memory/status`);
+            const data = await response.json();
+            const status = data.data || {};
+            const usage = Number(status.usagePercent || 0);
+            if (this.memoryStatusPill) {
+                this.memoryStatusPill.textContent = status.alertActive ? '告警中' : '正常';
+                this.memoryStatusPill.classList.toggle('bad', !!status.alertActive);
+                this.memoryStatusPill.classList.toggle('ok', !status.alertActive);
+            }
+            if (this.memoryUsageBar) this.memoryUsageBar.style.width = `${Math.min(100, usage)}%`;
+            if (this.memoryWarningThreshold) this.memoryWarningThreshold.value = status.warningThreshold ?? 85;
+            if (this.memoryRecoveryThreshold) this.memoryRecoveryThreshold.value = status.recoveryThreshold ?? 75;
+            if (this.memoryConsecutiveLimit) this.memoryConsecutiveLimit.value = status.consecutiveLimit ?? 3;
+            if (this.memoryCooldownMinutes) this.memoryCooldownMinutes.value = status.cooldownMinutes ?? 30;
+            this.memoryStatusText.textContent = `当前使用率 ${usage.toFixed(2)}%，已用 ${this.formatFileSize(status.usedMemory || 0)} / ${this.formatFileSize(status.totalMemory || 0)}，连续超阈值 ${status.consecutiveHighCount || 0} 次。`;
+        } catch (e) {
+            this.memoryStatusText.textContent = '内存状态读取失败';
+        }
+    }
+
+    async saveMemoryConfig() {
+        try {
+            const payload = {
+                warningThreshold: Number(this.memoryWarningThreshold?.value || 85),
+                recoveryThreshold: Number(this.memoryRecoveryThreshold?.value || 75),
+                consecutiveLimit: Number(this.memoryConsecutiveLimit?.value || 3),
+                cooldownMinutes: Number(this.memoryCooldownMinutes?.value || 30)
+            };
+            const response = await fetch(`${this.apiBaseUrl}/monitoring/memory/config`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            const data = await response.json();
+            if (!response.ok || data.code !== 200) throw new Error(data.message || '保存失败');
+            this.showNotification('内存监控配置已保存', 'success');
+            this.loadMemoryStatus();
+        } catch (e) {
+            this.showNotification('保存失败: ' + e.message, 'error');
+        }
+    }
+
+    async loadMcpConnections() {
+        if (!this.mcpConnectionsList) return;
+        try {
+            const response = await fetch(`${this.apiBaseUrl}/mcp/connections`);
+            const data = await response.json();
+            this.renderMcpConnections(data.data || []);
+        } catch (e) {
+            this.mcpConnectionsList.innerHTML = '<div class="knowledge-empty">MCP 连接读取失败</div>';
+        }
+    }
+
+    renderMcpConnections(connections) {
+        if (!this.mcpConnectionsList) return;
+        if (!connections.length) {
+            this.mcpConnectionsList.innerHTML = '<div class="knowledge-empty">暂无 MCP 连接</div>';
+            return;
+        }
+        this.mcpConnectionsList.innerHTML = connections.map(item => `
+            <div class="mcp-row" data-id="${this.escapeHtml(item.id)}">
+                <div><strong>${this.escapeHtml(item.name)}</strong><span>${this.escapeHtml(item.transport)} · ${this.escapeHtml(item.url || item.command || '')}</span></div>
+                <div>
+                    <button class="table-action-btn" data-action="validate">校验</button>
+                    <button class="table-action-btn danger" data-action="delete">删除</button>
+                </div>
+            </div>
+        `).join('');
+        this.mcpConnectionsList.querySelectorAll('.mcp-row').forEach(row => {
+            const id = row.dataset.id;
+            row.querySelector('[data-action="validate"]').addEventListener('click', () => this.validateMcpConnection(id));
+            row.querySelector('[data-action="delete"]').addEventListener('click', () => this.deleteMcpConnection(id));
+        });
+    }
+
+    async saveMcpConnection() {
+        try {
+            const args = (this.mcpArgsInput?.value || '').trim().split(/\s+/).filter(Boolean);
+            const payload = {
+                name: this.mcpNameInput?.value.trim(),
+                transport: this.mcpTransportInput?.value || 'sse',
+                url: this.mcpUrlInput?.value.trim(),
+                endpoint: this.mcpEndpointInput?.value.trim(),
+                command: this.mcpCommandInput?.value.trim(),
+                args,
+                enabled: true
+            };
+            if (!payload.name) throw new Error('请输入连接名');
+            const response = await fetch(`${this.apiBaseUrl}/mcp/connections`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            const data = await response.json();
+            if (!response.ok || data.code !== 200) throw new Error(data.message || '保存失败');
+            [this.mcpNameInput, this.mcpUrlInput, this.mcpEndpointInput, this.mcpCommandInput, this.mcpArgsInput].forEach(input => { if (input) input.value = ''; });
+            this.showNotification('MCP 连接已保存，重启后生效', 'success');
+            this.loadMcpConnections();
+            this.loadMcpSnippet();
+        } catch (e) {
+            this.showNotification('MCP 保存失败: ' + e.message, 'error');
+        }
+    }
+
+    async validateMcpConnection(id) {
+        try {
+            const response = await fetch(`${this.apiBaseUrl}/mcp/connections/${encodeURIComponent(id)}/validate`, { method: 'POST' });
+            const data = await response.json();
+            const result = data.data || {};
+            this.showNotification(result.message || (result.valid ? '配置有效' : '配置无效'), result.valid ? 'success' : 'warning');
+        } catch (e) {
+            this.showNotification('MCP 校验失败: ' + e.message, 'error');
+        }
+    }
+
+    async deleteMcpConnection(id) {
+        try {
+            const confirmed = await this.showConfirm('确定删除这个 MCP 连接吗？');
+            if (!confirmed) return;
+            const response = await fetch(`${this.apiBaseUrl}/mcp/connections/${encodeURIComponent(id)}`, { method: 'DELETE' });
+            if (!response.ok) throw new Error('删除失败');
+            this.showNotification('MCP 连接已删除', 'success');
+            this.loadMcpConnections();
+            this.loadMcpSnippet();
+        } catch (e) {
+            this.showNotification('MCP 删除失败: ' + e.message, 'error');
+        }
+    }
+
+    async loadMcpSnippet() {
+        if (!this.mcpConfigSnippet) return;
+        try {
+            const response = await fetch(`${this.apiBaseUrl}/mcp/config-snippet`);
+            const data = await response.json();
+            this.mcpConfigSnippet.textContent = data.data?.yaml || '';
+        } catch (e) {
+            this.mcpConfigSnippet.textContent = 'YAML 生成失败';
+        }
     }
 
     // ========== 确认弹窗 ==========

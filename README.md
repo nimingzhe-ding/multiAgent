@@ -21,6 +21,7 @@
 | Agent    | Spring AI Alibaba Agent Framework      |
 | 模型     | 阿里云 DashScope Chat / Embedding      |
 | 向量库   | Milvus 2.x                             |
+| 持久化   | MySQL 8.x                              |
 | 文档解析 | Apache POI、pdftotext                  |
 | 前端     | Spring Boot Static HTML/CSS/JavaScript |
 | 日志/MCP | Spring AI MCP Client、Tencent CLS MCP  |
@@ -140,6 +141,7 @@ POST /api/ai_ops
 - JDK 17+
 - Maven 3.8+
 - Docker Desktop
+- MySQL 8.x
 - DashScope API Key
 - 可选：`pdftotext`，用于 PDF 文本抽取
 
@@ -157,6 +159,32 @@ where.exe pdftotext
 
 ```powershell
 $env:DASHSCOPE_API_KEY="你的 DashScope API Key"
+```
+
+项目不再使用 SQLite。必须准备 MySQL 数据库：
+
+```sql
+CREATE DATABASE super_biz_agent
+  DEFAULT CHARACTER SET utf8mb4
+  DEFAULT COLLATE utf8mb4_unicode_ci;
+```
+
+默认连接本机 MySQL：
+
+```yaml
+spring:
+  datasource:
+    url: jdbc:mysql://localhost:3306/super_biz_agent?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+    username: root
+    password: ""
+```
+
+也可以通过环境变量覆盖：
+
+```powershell
+$env:DB_JDBC_URL="jdbc:mysql://localhost:3306/super_biz_agent?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true"
+$env:DB_USERNAME="root"
+$env:DB_PASSWORD="你的 MySQL 密码"
 ```
 
 如果要永久设置 Windows 系统环境变量：
@@ -178,6 +206,8 @@ milvus:
   host: localhost
   port: 19530
 ```
+
+启动时系统会自动创建 `sessions`、`session_messages`、`skills` 三张表。
 
 日志编码：
 
@@ -208,19 +238,25 @@ docker compose -f vector-database.yml up -d
 Test-NetConnection localhost -Port 19530
 ```
 
-### 2. 编译
+### 2. 确认 MySQL 数据库已创建
+
+```powershell
+mysql -u root -p -e "CREATE DATABASE IF NOT EXISTS super_biz_agent DEFAULT CHARACTER SET utf8mb4 DEFAULT COLLATE utf8mb4_unicode_ci;"
+```
+
+### 3. 编译
 
 ```powershell
 mvn clean compile
 ```
 
-### 3. 启动后端
+### 4. 启动后端
 
 ```powershell
 mvn spring-boot:run
 ```
 
-### 4. 打开页面
+### 5. 打开页面
 
 ```text
 http://localhost:9900
