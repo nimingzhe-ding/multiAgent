@@ -29,6 +29,7 @@ public class MemoryMonitoringService {
     private final String username;
     private final String password;
     private final FeishuNotificationService feishuNotificationService;
+    private final AlertAnalysisOrchestratorService alertAnalysisOrchestratorService;
     private final Object initLock = new Object();
     private volatile boolean initialized;
     private int consecutiveHighCount;
@@ -39,11 +40,13 @@ public class MemoryMonitoringService {
             @Value("${spring.datasource.url}") String jdbcUrl,
             @Value("${spring.datasource.username:}") String username,
             @Value("${spring.datasource.password:}") String password,
-            FeishuNotificationService feishuNotificationService) {
+            FeishuNotificationService feishuNotificationService,
+            AlertAnalysisOrchestratorService alertAnalysisOrchestratorService) {
         this.jdbcUrl = jdbcUrl;
         this.username = username;
         this.password = password;
         this.feishuNotificationService = feishuNotificationService;
+        this.alertAnalysisOrchestratorService = alertAnalysisOrchestratorService;
     }
 
     private Connection getConnection() throws SQLException {
@@ -142,6 +145,7 @@ public class MemoryMonitoringService {
                 alertActive = true;
                 lastAlertAt = Instant.now();
                 sendFeishu(event);
+                alertAnalysisOrchestratorService.submitMemoryAlert(event);
             }
 
             if (alertActive && snapshot.usagePercent() <= config.recoveryThreshold()) {

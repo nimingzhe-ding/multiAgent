@@ -11,6 +11,7 @@ import com.alibaba.cloud.ai.graph.streaming.StreamingOutput;
 import jakarta.annotation.PreDestroy;
 import lombok.Getter;
 import lombok.Setter;
+import org.example.dto.AIOpsRequest;
 import org.example.service.AiOpsService;
 import org.example.service.ChatService;
 import org.example.service.MultiAgentChatService;
@@ -391,7 +392,7 @@ public class ChatController {
      * 无需用户输入，自动执行告警分析流程
      */
     @PostMapping(value = "/ai_ops", produces = "text/event-stream;charset=UTF-8")
-    public SseEmitter aiOps() {
+    public SseEmitter aiOps(@RequestBody(required = false) AIOpsRequest request) {
         SseEmitter emitter = new SseEmitter(600000L); // 10分钟超时（告警分析可能较慢）
 
         try {
@@ -415,7 +416,8 @@ public class ChatController {
                 emitter.send(SseEmitter.event().name("message").data(SseMessage.content("正在读取告警并拆解任务...\n")));
                 
                 // 调用 AiOpsService 执行分析流程
-                Optional<OverAllState> overAllStateOptional = aiOpsService.executeAiOpsAnalysis(chatModel, toolCallbacks);
+                String manualContext = request == null ? null : request.getUserRequest();
+                Optional<OverAllState> overAllStateOptional = aiOpsService.executeAiOpsAnalysis(chatModel, toolCallbacks, manualContext);
 
                 if (overAllStateOptional.isEmpty()) {
                     emitter.send(SseEmitter.event().name("message")

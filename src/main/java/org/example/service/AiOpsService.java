@@ -53,6 +53,21 @@ public class AiOpsService {
      * @throws GraphRunnerException 如果 Agent 执行失败
      */
     public Optional<OverAllState> executeAiOpsAnalysis(DashScopeChatModel chatModel, ToolCallback[] toolCallbacks) throws GraphRunnerException {
+        return executeAiOpsAnalysis(chatModel, toolCallbacks, null);
+    }
+
+    /**
+     * 执行 AI Ops 告警分析流程
+     *
+     * @param chatModel      大模型实例
+     * @param toolCallbacks  工具回调数组
+     * @param alertContext   告警上下文，可由自动告警或手动输入传入
+     * @return 分析结果状态
+     * @throws GraphRunnerException 如果 Agent 执行失败
+     */
+    public Optional<OverAllState> executeAiOpsAnalysis(DashScopeChatModel chatModel,
+                                                       ToolCallback[] toolCallbacks,
+                                                       String alertContext) throws GraphRunnerException {
         logger.info("开始执行 AI Ops 多 Agent 协作流程");
 
         // 构建 Planner 和 Executor Agent
@@ -68,10 +83,21 @@ public class AiOpsService {
                 .subAgents(List.of(plannerAgent, executorAgent))
                 .build();
 
-        String taskPrompt = "你是企业级 SRE，接到了自动化告警排查任务。请结合工具调用，执行**规划→执行→再规划**的闭环，并最终按照固定模板输出《告警分析报告》。禁止编造虚假数据，如连续多次查询失败需诚实反馈无法完成的原因。";
+        String taskPrompt = buildTaskPrompt(alertContext);
 
         logger.info("调用 Supervisor Agent 开始编排...");
         return supervisorAgent.invoke(taskPrompt);
+    }
+
+    private String buildTaskPrompt(String alertContext) {
+        StringBuilder prompt = new StringBuilder();
+        prompt.append("你是企业级 SRE，接到了自动化告警排查任务。请结合工具调用，执行**规划→执行→再规划**的闭环，并最终按照固定模板输出《告警分析报告》。禁止编造虚假数据，如连续多次查询失败需诚实反馈无法完成的原因。");
+        if (alertContext != null && !alertContext.isBlank()) {
+            prompt.append("\n\n## 当前告警/任务上下文\n");
+            prompt.append(alertContext.strip());
+            prompt.append("\n\n请优先围绕上述上下文排查；如果上下文信息不足，请调用可用工具补充证据，并在报告中说明缺失项。");
+        }
+        return prompt.toString();
     }
 
     /**

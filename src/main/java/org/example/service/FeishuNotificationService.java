@@ -23,6 +23,7 @@ import java.util.Map;
 public class FeishuNotificationService {
 
     private static final MediaType JSON = MediaType.parse("application/json; charset=utf-8");
+    private static final int MAX_TEXT_MESSAGE_LENGTH = 3500;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final OkHttpClient httpClient;
@@ -63,6 +64,30 @@ public class FeishuNotificationService {
             return cardResult;
         }
         return sendText(buildMemoryText(alert));
+    }
+
+    public SendResult sendAiOpsReport(String title, String report) {
+        String safeTitle = title == null || title.isBlank() ? "AI Ops 自动排查报告" : title;
+        String safeReport = report == null || report.isBlank() ? "未生成可用报告。" : report;
+        String content = safeTitle + "\n\n" + safeReport;
+        if (content.length() <= MAX_TEXT_MESSAGE_LENGTH) {
+            return sendText(content);
+        }
+
+        SendResult firstResult = null;
+        int totalParts = (int) Math.ceil(content.length() / (double) MAX_TEXT_MESSAGE_LENGTH);
+        for (int i = 0; i < content.length(); i += MAX_TEXT_MESSAGE_LENGTH) {
+            int end = Math.min(i + MAX_TEXT_MESSAGE_LENGTH, content.length());
+            int part = i / MAX_TEXT_MESSAGE_LENGTH + 1;
+            SendResult result = sendText("[" + part + "/" + totalParts + "] " + content.substring(i, end));
+            if (firstResult == null) {
+                firstResult = result;
+            }
+            if (!result.success()) {
+                return result;
+            }
+        }
+        return firstResult == null ? new SendResult(false, 0, "empty report") : firstResult;
     }
 
     public SendResult sendInteractiveCard(Map<String, Object> card) {
